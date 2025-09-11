@@ -20,3 +20,7 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+ 
+# プロジェクト固有
+# 要件定義はプッシュ禁止（pre-pushフックで制御）
+要件定義.md

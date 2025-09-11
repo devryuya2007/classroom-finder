@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+# Blocks pushing specific files to any remote.
+# You can still commit them locally.
+
+set -u
+
+blocked_paths=(
+  "要件定義.md"
+)
+
+block=false
+
+# Read refs from stdin: local_ref local_sha remote_ref remote_sha
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Deletion updates have all-zero local_sha; skip
+  if [[ "${local_sha}" == "0000000000000000000000000000000000000000" ]]; then
+    continue
+  fi
+
+  if [[ "${remote_sha}" == "0000000000000000000000000000000000000000" ]]; then
+    # New remote ref: check if blocked files exist in the commit tree
+    for path in "${blocked_paths[@]}"; do
+      if git ls-tree -r --name-only "${local_sha}" | grep -Fxq "${path}"; then
+        echo "ERROR: Push blocked: '${path}' is present in ${local_ref}." >&2
+        block=true
+      fi
+    done
+  else
+    # Existing remote ref: check if blocked files are part of the push
+    changed_files=$(git diff --name-only "${remote_sha}" "${local_sha}" || true)
+    for path in "${blocked_paths[@]}"; do
+      if echo "${changed_files}" | grep -Fxq "${path}"; then
+        echo "ERROR: Push blocked: '${path}' is included in updates to ${remote_ref}." >&2
+        block=true
+      fi
+    done
+  fi
+done
+
+if ${block}; then
+  cat >&2 <<'EOF'
+This repository blocks pushing certain files to remotes.
+You can commit them locally, but pushes containing them are rejected.
+
+Blocked file:
+  - 要件定義.md
+
+To proceed, remove the file from the branch or exclude it from history before pushing.
+EOF
+  exit 1
+fi
+
+exit 0
+
