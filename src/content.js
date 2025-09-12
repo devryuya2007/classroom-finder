@@ -1,14 +1,14 @@
 // Bootstrap constants and style injector (recreated)
 const MENU_SELECTOR = 'div.tCcYY.yWU57c[role="menu"]';
 const TOPBAR_SELECTOR = 'nav.joJglb[role="navigation"]';
-const STYLE_ID = 'gcx-sarch-style';
-const WRAP_CLASS = 'gcx-sarch-wrap';
-const TOPBAR_WRAP = 'gcx-topbar';
-const TOPBAR_INPUT = 'gcx-topbar-input';
+const STYLE_ID = "gcx-sarch-style";
+const WRAP_CLASS = "gcx-sarch-wrap";
+const TOPBAR_WRAP = "gcx-topbar";
+const TOPBAR_INPUT = "gcx-topbar-input";
 
 function ensureStyles() {
   if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement('style');
+  const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
     /* Left menu search (sibling wrapper) */
@@ -44,7 +44,7 @@ function ensureStyles() {
     .${TOPBAR_WRAP} > input.${TOPBAR_INPUT} {
       box-sizing: border-box;
       width: 100%;
-      height: 32px;
+      height: 36px;
       padding: 0 12px 0 32px; /* space for icon */
       border: 1px solid rgba(95,99,104,0.3);
       border-radius: 16px;
@@ -98,6 +98,108 @@ function ensureStyles() {
 
 // Back-compat alias if code calls lower-case name
 const ensurestyle = ensureStyles;
+
+// ===== Optional CDN library bootstrap (dev/off by default) =====
+// Note: Chrome Web Store policy forbids remotely hosted code for published extensions.
+// This loader is disabled by default and intended for local/dev use only.
+// Enable by setting localStorage.GCX_USE_CDN = '1'.
+
+const GCX_CDN_FLAG = 'GCX_USE_CDN';
+const GCX_LIBS_FLAG = 'GCX_LIBS'; // comma: e.g. "fuse,idb,hotkeys"
+
+function preconnect(href) {
+  if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)) return;
+  const l1 = document.createElement('link');
+  l1.rel = 'preconnect';
+  l1.href = href;
+  l1.crossOrigin = 'anonymous';
+  document.head.appendChild(l1);
+  const l2 = document.createElement('link');
+  l2.rel = 'dns-prefetch';
+  l2.href = href;
+  document.head.appendChild(l2);
+}
+
+function addScript(src, attrs = {}) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v != null) s.setAttribute(k, v);
+    }
+    s.addEventListener('load', () => resolve(src));
+    s.addEventListener('error', () => reject(new Error(`Failed: ${src}`)));
+    document.head.appendChild(s);
+  });
+}
+
+const CDN = {
+  // Licenses: all MIT at the time of writing
+  fuse: {
+    marker: 'Fuse',
+    scripts: [
+      'https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js',
+      'https://unpkg.com/fuse.js@6.6.2/dist/fuse.min.js',
+    ],
+  },
+  idb: {
+    marker: 'idb',
+    scripts: [
+      'https://cdn.jsdelivr.net/npm/idb@7.1.1/build/iife/index-min.js',
+      'https://unpkg.com/idb@7.1.1/build/iife/index-min.js',
+    ],
+  },
+  hotkeys: {
+    marker: 'hotkeys',
+    scripts: [
+      'https://cdn.jsdelivr.net/npm/hotkeys-js@3.13.8/dist/hotkeys.min.js',
+      'https://unpkg.com/hotkeys-js@3.13.8/dist/hotkeys.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/hotkeys-js/3.13.8/hotkeys.min.js',
+    ],
+  },
+};
+
+function bestOrigins(urls) {
+  ['https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://cdnjs.cloudflare.com'].forEach(preconnect);
+  return urls;
+}
+
+function alreadyInjected(marker) {
+  return !!document.head.querySelector(`script[data-gcx-lib="${marker}"]`);
+}
+
+function injectLib(name) {
+  const spec = CDN[name];
+  if (!spec) return Promise.resolve(false);
+  if (alreadyInjected(spec.marker)) return Promise.resolve(true);
+  const urls = bestOrigins(spec.scripts);
+  let p = Promise.reject();
+  urls.forEach((u) => {
+    p = p.catch(() => addScript(u, { 'data-gcx-lib': spec.marker, crossorigin: 'anonymous', referrerpolicy: 'no-referrer' }));
+  });
+  return p.then(() => {
+    window.dispatchEvent(new CustomEvent('gcx:cdn-loaded', { detail: { lib: name, ok: true } }));
+    return true;
+  }).catch((err) => {
+    window.dispatchEvent(new CustomEvent('gcx:cdn-loaded', { detail: { lib: name, ok: false, error: String(err) } }));
+    return false;
+  });
+}
+
+async function maybeLoadCDNs() {
+  try {
+    const allow = (localStorage.getItem(GCX_CDN_FLAG) === '1') || document.documentElement.getAttribute('data-gcx-cdn') === '1';
+    if (!allow) return false;
+    const list = (localStorage.getItem(GCX_LIBS_FLAG) || 'fuse,idb').split(',').map((s) => s.trim()).filter(Boolean);
+    const results = await Promise.all(list.map(injectLib));
+    return results.every(Boolean);
+  } catch {
+    return false;
+  }
+}
+
 
 function createSarchInput() {
   const input = document.createElement("input");
@@ -375,6 +477,8 @@ function observe() {
 
 function init() {
   ensureStyles();
+  // Optional: preload CDN libs when explicitly enabled (dev)
+  maybeLoadCDNs();
   scanAndInject();
   observe();
   console.debug("[GCX] sarch input injection initialized");
