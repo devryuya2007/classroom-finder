@@ -89,33 +89,34 @@ const ensurestyle = ensureStyles;
 // 注意: 公開版の拡張ではリモートコードの読み込みは禁止（Chrome Web Store ポリシー）。
 // このローダーはローカル/開発用途向け。使用する場合は localStorage.GCX_USE_CDN = '1' を設定。
 
-const GCX_CDN_FLAG = 'GCX_USE_CDN';
-const GCX_LIBS_FLAG = 'GCX_LIBS'; // 例: "fuse,idb,hotkeys" のようにカンマ区切り
+const GCX_CDN_FLAG = "GCX_USE_CDN";
+const GCX_LIBS_FLAG = "GCX_LIBS"; // 例: "fuse,idb,hotkeys" のようにカンマ区切り
 
 function preconnect(href) {
-  if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)) return;
-  const l1 = document.createElement('link');
-  l1.rel = 'preconnect';
+  if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`))
+    return;
+  const l1 = document.createElement("link");
+  l1.rel = "preconnect";
   l1.href = href;
-  l1.crossOrigin = 'anonymous';
+  l1.crossOrigin = "anonymous";
   document.head.appendChild(l1);
-  const l2 = document.createElement('link');
-  l2.rel = 'dns-prefetch';
+  const l2 = document.createElement("link");
+  l2.rel = "dns-prefetch";
   l2.href = href;
   document.head.appendChild(l2);
 }
 
 function addScript(src, attrs = {}) {
   return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
+    const s = document.createElement("script");
     s.src = src;
-    s.async = true;
+    s.async = true; //デフォルトで async だから消して良し。
     // 属性は data-* を中心に明示付与（重複注入の検知や CORS 制御に利用）
     for (const [k, v] of Object.entries(attrs)) {
       if (v != null) s.setAttribute(k, v);
     }
-    s.addEventListener('load', () => resolve(src));
-    s.addEventListener('error', () => reject(new Error(`Failed: ${src}`)));
+    s.addEventListener("load", () => resolve(src));
+    s.addEventListener("error", () => reject(new Error(`Failed: ${src}`)));
     document.head.appendChild(s);
   });
 }
@@ -123,70 +124,89 @@ function addScript(src, attrs = {}) {
 const CDN = {
   // ライセンスは執筆時点でいずれも MIT
   fuse: {
-    marker: 'Fuse',
+    marker: "Fuse",
     scripts: [
-      'https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js',
-      'https://unpkg.com/fuse.js@6.6.2/dist/fuse.min.js',
+      "https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js",
+      "https://unpkg.com/fuse.js@6.6.2/dist/fuse.min.js",
     ],
   },
   idb: {
-    marker: 'idb',
+    marker: "idb",
     scripts: [
-      'https://cdn.jsdelivr.net/npm/idb@7.1.1/build/iife/index-min.js',
-      'https://unpkg.com/idb@7.1.1/build/iife/index-min.js',
+      "https://cdn.jsdelivr.net/npm/idb@7.1.1/build/iife/index-min.js",
+      "https://unpkg.com/idb@7.1.1/build/iife/index-min.js",
     ],
   },
   hotkeys: {
-    marker: 'hotkeys',
+    marker: "hotkeys",
     scripts: [
-      'https://cdn.jsdelivr.net/npm/hotkeys-js@3.13.8/dist/hotkeys.min.js',
-      'https://unpkg.com/hotkeys-js@3.13.8/dist/hotkeys.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/hotkeys-js/3.13.8/hotkeys.min.js',
+      "https://cdn.jsdelivr.net/npm/hotkeys-js@3.13.8/dist/hotkeys.min.js",
+      "https://unpkg.com/hotkeys-js@3.13.8/dist/hotkeys.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/hotkeys-js/3.13.8/hotkeys.min.js",
     ],
   },
 };
 
 function bestOrigins(urls) {
-  ['https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://cdnjs.cloudflare.com'].forEach(preconnect);
-  return urls;
+  [
+    "https://cdn.jsdelivr.net",
+    "https://unpkg.com",
+    "https://cdnjs.cloudflare.com",
+  ].forEach(preconnect); //urls.forEach((u) => preconnect(u) と同じ;
+  return urls; //forEach(preconnect());ではその場で実行し結果を返してしまう
 }
 
 function alreadyInjected(marker) {
   return !!document.head.querySelector(`script[data-gcx-lib="${marker}"]`);
 }
 
-function injectLib(name) {
+async function injectLib(name) {
   const spec = CDN[name];
-  if (!spec) return Promise.resolve(false);
-  if (alreadyInjected(spec.marker)) return Promise.resolve(true);
+  if (!spec) return false;
+  if (alreadyInjected(spec.marker)) return true;
   const urls = bestOrigins(spec.scripts);
-  let p = Promise.reject();
-  urls.forEach((u) => {
-    p = p.catch(() => addScript(u, { 'data-gcx-lib': spec.marker, crossorigin: 'anonymous', referrerpolicy: 'no-referrer' }));
-  });
-  return p.then(() => {
-    window.dispatchEvent(new CustomEvent('gcx:cdn-loaded', { detail: { lib: name, ok: true } }));
-    return true;
-  }).catch((err) => {
-    window.dispatchEvent(new CustomEvent('gcx:cdn-loaded', { detail: { lib: name, ok: false, error: String(err) } }));
-    return false;
-  });
+  let lastErr;
+  for (const u of urls) {
+    try {
+      await addScript(u, {
+        "data-gcx-lib": spec.marker,
+        crossorigin: "anonymous",
+        referrerpolicy: "no-referrer",
+      });
+      window.dispatchEvent(
+        new CustomEvent("gcx:cdn-loaded", { detail: { lib: name, ok: true } })
+      );
+      return true;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  window.dispatchEvent(
+    new CustomEvent("gcx:cdn-loaded", {
+      detail: { lib: name, ok: false, error: String(lastErr) },
+    })
+  );
+  return false;
 }
 
 async function maybeLoadCDNs() {
   try {
-    const allow = (localStorage.getItem(GCX_CDN_FLAG) === '1') || document.documentElement.getAttribute('data-gcx-cdn') === '1';
+    const allow =
+      localStorage.getItem(GCX_CDN_FLAG) === "1" ||
+      document.documentElement.getAttribute("data-gcx-cdn") === "1";
     if (!allow) return false;
     // 読み込み対象ライブラリの決定（カンマ区切り、空白トリム）
-    const list = (localStorage.getItem(GCX_LIBS_FLAG) || 'fuse,idb').split(',').map((s) => s.trim()).filter(Boolean);
+    const list = (localStorage.getItem(GCX_LIBS_FLAG) || "fuse,idb")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     const results = await Promise.all(list.map(injectLib));
     return results.every(Boolean);
   } catch {
     return false;
   }
 }
-
 
 // メニュー側への注入は削除し、トップバー専用に単純化
 
@@ -304,7 +324,7 @@ function observe() {
   // DOM 変化を監視し、必要に応じて再注入（軽量）
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
-      if (m.type === 'childList') {
+      if (m.type === "childList") {
         injectTopbar();
         break;
       }
