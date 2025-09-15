@@ -1,4 +1,8 @@
-// Bootstrap constants and style injector (recreated)
+// Google Classroom のトップバーへ「クイック検索」UIを挿入するスクリプト
+// - ネットワーク通信は行わず、DOM 監視で UI を差し込むだけ
+// - スタイルは <style> 要素を一度だけ注入して適用する
+// - 検索アイコンは before/after の疑似要素で CSS 描画（画像やアイコンフォント不要）
+// ここから定数定義とスタイル注入ヘルパー
 const TOPBAR_SELECTOR = 'nav.joJglb[role="navigation"]';
 const STYLE_ID = "gcx-sarch-style";
 const TOPBAR_WRAP = "gcx-topbar";
@@ -9,22 +13,22 @@ function ensureStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    /* Top bar quick search */
+    /* トップバー用クイック検索の見た目定義 */
     .${TOPBAR_WRAP} {
       position: relative;
-      display: inline-flex;
+      display: inline-flex; /* インラインに並ぶフレックス行（右寄せしやすい） */
       align-items: center;
       gap: 8px;
       max-width: 420px;
       min-width: 220px;
-      margin-left: auto; /* prefer right side when nav uses flex */
+      margin-left: auto; /* ナビが flex の場合は右側に寄せるため */
       padding: 0 6px;
     }
     .${TOPBAR_WRAP} > input.${TOPBAR_INPUT} {
       box-sizing: border-box;
       width: 100%;
       height: 36px;
-      padding: 0 12px 0 32px; /* space for icon */
+      padding: 0 12px 0 32px; /* 左側に描く検索アイコン分の余白 */
       border: 1px solid rgba(95,99,104,0.3);
       border-radius: 16px;
       background: rgba(255,255,255,0.8);
@@ -39,6 +43,7 @@ function ensureStyles() {
       background: #fff;
     }
     .${TOPBAR_WRAP}::before {
+      /* 検索アイコン（レンズの丸）を CSS のみで描画 */
       content: '';
       position: absolute;
       left: 12px;
@@ -50,6 +55,7 @@ function ensureStyles() {
       pointer-events: none;
     }
     .${TOPBAR_WRAP}::after {
+      /* 検索アイコン（持ち手）を CSS のみで描画 */
       content: '';
       position: absolute;
       left: 24px;
@@ -62,6 +68,7 @@ function ensureStyles() {
       pointer-events: none;
     }
     .${TOPBAR_WRAP}[data-overlay="1"] {
+      /* スペースが足りず他要素と重なる場合は中央オーバーレイに切替 */
       position: absolute !important;
       left: 50%;
       top: 50%;
@@ -75,16 +82,15 @@ function ensureStyles() {
   document.head.appendChild(style);
 }
 
-// Back-compat alias if code calls lower-case name
+// 後方互換用の別名（古いコードが小文字関数名を呼ぶ場合のため）
 const ensurestyle = ensureStyles;
 
-// ===== Optional CDN library bootstrap (dev/off by default) =====
-// Note: Chrome Web Store policy forbids remotely hosted code for published extensions.
-// This loader is disabled by default and intended for local/dev use only.
-// Enable by setting localStorage.GCX_USE_CDN = '1'.
+// ===== 開発時のみ任意で使える CDN ローダー（デフォルト無効） =====
+// 注意: 公開版の拡張ではリモートコードの読み込みは禁止（Chrome Web Store ポリシー）。
+// このローダーはローカル/開発用途向け。使用する場合は localStorage.GCX_USE_CDN = '1' を設定。
 
 const GCX_CDN_FLAG = 'GCX_USE_CDN';
-const GCX_LIBS_FLAG = 'GCX_LIBS'; // comma: e.g. "fuse,idb,hotkeys"
+const GCX_LIBS_FLAG = 'GCX_LIBS'; // 例: "fuse,idb,hotkeys" のようにカンマ区切り
 
 function preconnect(href) {
   if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)) return;
@@ -104,6 +110,7 @@ function addScript(src, attrs = {}) {
     const s = document.createElement('script');
     s.src = src;
     s.async = true;
+    // 属性は data-* を中心に明示付与（重複注入の検知や CORS 制御に利用）
     for (const [k, v] of Object.entries(attrs)) {
       if (v != null) s.setAttribute(k, v);
     }
@@ -114,7 +121,7 @@ function addScript(src, attrs = {}) {
 }
 
 const CDN = {
-  // Licenses: all MIT at the time of writing
+  // ライセンスは執筆時点でいずれも MIT
   fuse: {
     marker: 'Fuse',
     scripts: [
@@ -171,6 +178,7 @@ async function maybeLoadCDNs() {
   try {
     const allow = (localStorage.getItem(GCX_CDN_FLAG) === '1') || document.documentElement.getAttribute('data-gcx-cdn') === '1';
     if (!allow) return false;
+    // 読み込み対象ライブラリの決定（カンマ区切り、空白トリム）
     const list = (localStorage.getItem(GCX_LIBS_FLAG) || 'fuse,idb').split(',').map((s) => s.trim()).filter(Boolean);
     const results = await Promise.all(list.map(injectLib));
     return results.every(Boolean);
@@ -180,14 +188,15 @@ async function maybeLoadCDNs() {
 }
 
 
-// (menu-side search injection removed; fixed to topbar only)
+// メニュー側への注入は削除し、トップバー専用に単純化
 
-// ===== Top bar UI (nav.joJglb) =====
+// ===== トップバー UI (nav.joJglb) =====
 function hasTopbar(navEl) {
   return !!navEl.querySelector(`:scope > .${TOPBAR_WRAP}`);
 }
 
 function createTopbar(navEl) {
+  // 検索コンテナを生成（ロールとラベルは ARIA を付与）
   const wrap = document.createElement("div");
   wrap.className = TOPBAR_WRAP;
   wrap.setAttribute("role", "search");
@@ -202,6 +211,7 @@ function createTopbar(navEl) {
   input.autocomplete = "off";
   input.spellcheck = false;
 
+  // 入力操作が親のナビに伝播してショートカット等を誤発火しないように抑止
   const stop = (e) => e.stopPropagation();
   [
     "click",
@@ -221,13 +231,13 @@ function createTopbar(navEl) {
   return wrap;
 }
 
-// unifyStyleFromMenuItem removed (topbar-only now)
+// unifyStyleFromMenuItem は不要になったため削除（トップバー専用）
 
-// menu-side helpers removed
+// メニュー側ヘルパー群は削除済み
 
 function placeTopbar(navEl, bar) {
   const cs = getComputedStyle(navEl);
-  // Try to place after brand link if exists
+  // 可能ならロゴ/ブランドリンクの直後に挿入。見つからなければ末尾に追加。
   const brand =
     navEl.querySelector("a.onkcGd") || navEl.querySelector("a[aria-label]");
   if (brand && brand.parentElement === navEl) {
@@ -236,7 +246,7 @@ function placeTopbar(navEl, bar) {
     navEl.appendChild(bar);
   }
 
-  // If nav is not flex, or overlap detected, switch to overlay mode
+  // ナビが flex でない、または他要素と重なる場合はオーバーレイに切替
   const isFlex = cs.display.includes("flex");
   if (cs.position === "static") navEl.style.position = "relative";
 
@@ -251,6 +261,7 @@ function placeTopbar(navEl, bar) {
       ).filter((el) => el !== bar && !bar.contains(el));
       for (const el of others) {
         const r = el.getBoundingClientRect();
+        // 矩形の交差量で重なりを判定（x/y いずれも交差 > 0）
         const xOverlap = Math.max(
           0,
           Math.min(barRect.right, r.right) - Math.max(barRect.left, r.left)
@@ -285,10 +296,12 @@ function injectTopbar(root = document) {
 }
 
 function scanAndInject(root = document) {
+  // 現在の DOM に対してトップバー検索を注入
   injectTopbar(root);
 }
 
 function observe() {
+  // DOM 変化を監視し、必要に応じて再注入（軽量）
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       if (m.type === 'childList') {
@@ -301,13 +314,14 @@ function observe() {
     childList: true,
     subtree: true,
   });
-  // Fallback: periodic check in case some mutations are missed
+  // 監視で取りこぼした場合のフォールバックとして定期チェック
   setInterval(() => injectTopbar(), 2000);
 }
 
 function init() {
+  // スタイル注入 →（任意）CDNプリロード → 注入 → 監視の順で初期化
   ensureStyles();
-  // Optional: preload CDN libs when explicitly enabled (dev)
+  // 開発時のみ明示的に有効化された場合はライブラリをプリロード
   maybeLoadCDNs();
   scanAndInject();
   observe();
