@@ -1,13 +1,14 @@
 // Google Classroom のトップバーへ「クイック検索」UIを挿入するスクリプト
 // - ネットワーク通信は行わず、DOM 監視で UI を差し込むだけ
-// - スタイルは <style> 要素を一度だけ注入して適用する
+// - スタイルは <style> 要素を一度だけ注入して適用する（UI 本体は後段で生成）
 // - 検索アイコンは before/after の疑似要素で CSS 描画（画像やアイコンフォント不要）
 // ここから定数定義とスタイル注入ヘルパー
-const TOPBAR_SELECTOR = 'nav.joJglb[role="navigation"]';
-const STYLE_ID = "gcx-sarch-style";
-const TOPBAR_WRAP = "gcx-topbar";
-const TOPBAR_INPUT = "gcx-topbar-input";
+const TOPBAR_SELECTOR = 'nav.joJglb[role="navigation"]'; // 検索 UI を置くナビのセレクタ
+const STYLE_ID = "gcx-sarch-style"; // 注入する <style> の id（重複防止）
+const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
+const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 
+// 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -88,10 +89,12 @@ const ensurestyle = ensureStyles;
 // ===== 開発時のみ任意で使える CDN ローダー（デフォルト無効） =====
 // 注意: 公開版の拡張ではリモートコードの読み込みは禁止（Chrome Web Store ポリシー）。
 // このローダーはローカル/開発用途向け。使用する場合は localStorage.GCX_USE_CDN = '1' を設定。
+// スイッチは 2 種類: (1) localStorage.GCX_USE_CDN === '1' (2) <html data-gcx-cdn="1">
 
-const GCX_CDN_FLAG = "GCX_USE_CDN";
+const GCX_CDN_FLAG = "GCX_USE_CDN"; // CDN 利用可否フラグ（文字列 "1" を期待）
 const GCX_LIBS_FLAG = "GCX_LIBS"; // 例: "fuse,idb,hotkeys" のようにカンマ区切り
 
+// 与えられたオリジン(href)への接続準備を行う（preconnect / dns-prefetch）。同一 href は重複追加しない。
 function preconnect(href) {
   if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`))
     return;
@@ -107,13 +110,18 @@ function preconnect(href) {
 }
 
 function addScript(src, attrs = {}) {
+  // 動的に <script> を生成して読み込む
+  // - src: URL 文字列（相対/絶対）
+  // - attrs: { 属性名: 値 } のプレーンオブジェクト（data-* 等を想定）
+  // - 成功(load): 実行完了後に src で resolve
+  // - 失敗(error): エラーで reject
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
     s.src = src;
-    s.async = true; //デフォルトで async だから消して良し。
+    s.async = true; // 動的挿入の既定。順序保証はしないため依存順は呼び出し側で await 直列化する。
     // 属性は data-* を中心に明示付与（重複注入の検知や CORS 制御に利用）
     for (const [k, v] of Object.entries(attrs)) {
-      if (v != null) s.setAttribute(k, v);
+      if (v != null) s.setAttribute(k, v); // 値は文字列化される。ブール属性は presence 管理が必要な場合あり。
     }
     s.addEventListener("load", () => resolve(src));
     s.addEventListener("error", () => reject(new Error(`Failed: ${src}`)));
@@ -122,10 +130,10 @@ function addScript(src, attrs = {}) {
 }
 
 const CDN = {
-  // ライセンスは執筆時点でいずれも MIT
+  // ライブラリ名 => { marker, scripts }（開発用）※ライセンスはいずれも MIT（執筆時点）
   fuse: {
-    marker: "Fuse",
-    scripts: [
+    marker: "Fuse", // 名札（<script data-gcx-lib="Fuse">）重複注入の識別に使用
+    scripts: [ // フォールバック候補の CDN URL 群（順に試す）
       "https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js",
       "https://unpkg.com/fuse.js@6.6.2/dist/fuse.min.js",
@@ -149,6 +157,7 @@ const CDN = {
 };
 
 function bestOrigins(urls) {
+  // 主要 CDN ドメインに対して接続準備のみ行い、配列はそのまま返す（選別や並べ替えはしない）
   [
     "https://cdn.jsdelivr.net",
     "https://unpkg.com",
@@ -158,15 +167,23 @@ function bestOrigins(urls) {
 }
 
 function alreadyInjected(marker) {
+  // 既に同じ名札(data-gcx-lib)の <script> が head にあるか
   return !!document.head.querySelector(`script[data-gcx-lib="${marker}"]`);
 }
 
+// 指定ライブラリを CDN から読み込む（開発用）
+// 戻り値: Promise<boolean>（成功 true / 全候補失敗 false）
+// 手順:
+//  1) 定義がない場合は false
+//  2) 既に注入済みなら true
+//  3) 候補 URL を順に直列で試す（最初に成功した時点で終了）
+//  4) 結果を CustomEvent "gcx:cdn-loaded" で通知（{ lib, ok, error? }）
 async function injectLib(name) {
   const spec = CDN[name];
   if (!spec) return false;
   if (alreadyInjected(spec.marker)) return true;
-  const urls = bestOrigins(spec.scripts);
-  let lastErr;
+  const urls = bestOrigins(spec.scripts); // フォールバック候補 URL 配列
+  let lastErr; // 直近の失敗（全滅時のイベント detail 用）
   for (const u of urls) {
     try {
       await addScript(u, {
@@ -182,6 +199,7 @@ async function injectLib(name) {
       lastErr = err;
     }
   }
+
   window.dispatchEvent(
     new CustomEvent("gcx:cdn-loaded", {
       detail: { lib: name, ok: false, error: String(lastErr) },
@@ -190,18 +208,19 @@ async function injectLib(name) {
   return false;
 }
 
+// CDN ロードのトグルと一括実行（開発用）
 async function maybeLoadCDNs() {
   try {
     const allow =
       localStorage.getItem(GCX_CDN_FLAG) === "1" ||
-      document.documentElement.getAttribute("data-gcx-cdn") === "1";
+      document.documentElement.getAttribute("data-gcx-cdn") === "1"; // <html data-gcx-cdn="1">
     if (!allow) return false;
     // 読み込み対象ライブラリの決定（カンマ区切り、空白トリム）
     const list = (localStorage.getItem(GCX_LIBS_FLAG) || "fuse,idb")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    const results = await Promise.all(list.map(injectLib));
+    const results = await Promise.all(list.map(injectLib)); // ライブラリ単位では並列
     return results.every(Boolean);
   } catch {
     return false;
@@ -212,17 +231,18 @@ async function maybeLoadCDNs() {
 
 // ===== トップバー UI (nav.joJglb) =====
 function hasTopbar(navEl) {
+  // 同じ nav 内に既に UI があれば重複挿入しない
   return !!navEl.querySelector(`:scope > .${TOPBAR_WRAP}`);
 }
 
 function createTopbar(navEl) {
   // 検索コンテナを生成（ロールとラベルは ARIA を付与）
-  const wrap = document.createElement("div");
+  const wrap = document.createElement("div"); // ラッパー
   wrap.className = TOPBAR_WRAP;
   wrap.setAttribute("role", "search");
   wrap.setAttribute("aria-label", "クイック検索");
 
-  const input = document.createElement("input");
+  const input = document.createElement("input"); // 入力ボックス
   input.type = "search";
   input.className = TOPBAR_INPUT;
   input.placeholder = "クラス全体を検索…";
@@ -259,7 +279,7 @@ function placeTopbar(navEl, bar) {
   const cs = getComputedStyle(navEl);
   // 可能ならロゴ/ブランドリンクの直後に挿入。見つからなければ末尾に追加。
   const brand =
-    navEl.querySelector("a.onkcGd") || navEl.querySelector("a[aria-label]");
+    navEl.querySelector("a.onkcGd") || navEl.querySelector("a[aria-label]"); // ブランド/ロゴリンク候補
   if (brand && brand.parentElement === navEl) {
     brand.insertAdjacentElement("afterend", bar);
   } else {
@@ -305,7 +325,7 @@ function placeTopbar(navEl, bar) {
 }
 
 function injectTopbar(root = document) {
-  let added = 0;
+  let added = 0; // 追加件数
   root.querySelectorAll(TOPBAR_SELECTOR).forEach((navEl) => {
     if (hasTopbar(navEl)) return;
     const bar = createTopbar(navEl);
@@ -339,7 +359,7 @@ function observe() {
 }
 
 function init() {
-  // スタイル注入 →（任意）CDNプリロード → 注入 → 監視の順で初期化
+  // 初期化フロー: スタイル注入 →（任意）CDN プリロード → UI 注入 → DOM 監視
   ensureStyles();
   // 開発時のみ明示的に有効化された場合はライブラリをプリロード
   maybeLoadCDNs();
