@@ -147,7 +147,7 @@ function alreadyInjected(marker) {
 //  1) 定義がない場合は false
 //  2) 既に注入済みなら true
 //  3) 候補 URL を順に直列で試す（最初に成功した時点で終了）
-//  4) 結果を CustomEvent "gcx:cdn-loaded" で通知（{ lib, ok, error? }）
+//  4) 結果を CustomEvent "gcx:libs-loaded"（互換: "gcx:cdn-loaded"）で通知
 async function injectLib(name) {
   const spec = LIB_SPECS[name];
   if (!spec) return false;
@@ -157,20 +157,28 @@ async function injectLib(name) {
     const url = getExtensionURL(relative);
     try {
       await addScript(url, { "data-gcx-lib": spec.marker });
-      window.dispatchEvent(
-        new CustomEvent("gcx:cdn-loaded", { detail: { lib: name, ok: true } })
-      );
+      const detail = {
+        name,
+        success: true,
+        message: "",
+        source: url,
+      };
+      window.dispatchEvent(new CustomEvent("gcx:libs-loaded", { detail }));
+      window.dispatchEvent(new CustomEvent("gcx:cdn-loaded", { detail }));
       return true;
     } catch (err) {
       lastErr = err;
     }
   }
 
-  window.dispatchEvent(
-    new CustomEvent("gcx:cdn-loaded", {
-      detail: { lib: name, ok: false, error: String(lastErr) },
-    })
-  );
+  const detail = {
+    name,
+    success: false,
+    message: String(lastErr || ""),
+    source: LIB_SPECS[name]?.sources.at(-1) || "",
+  };
+  window.dispatchEvent(new CustomEvent("gcx:libs-loaded", { detail }));
+  window.dispatchEvent(new CustomEvent("gcx:cdn-loaded", { detail }));
   return false;
 }
 
