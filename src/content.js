@@ -86,27 +86,34 @@ function ensureStyles() {
 // 後方互換用の別名（古いコードが小文字関数名を呼ぶ場合のため）
 const ensurestyle = ensureStyles;
 
-// ===== 開発時のみ任意で使える CDN ローダー（デフォルト無効） =====
-// 注意: 公開版の拡張ではリモートコードの読み込みは禁止（Chrome Web Store ポリシー）。
-// このローダーはローカル/開発用途向け。使用する場合は localStorage.GCX_USE_CDN = '1' を設定。
-// スイッチは 2 種類: (1) localStorage.GCX_USE_CDN === '1' (2) <html data-gcx-cdn="1">
+// ===== ローカル配布ライブラリ ローダー =====
+const LIB_SPECS = {
+  fuse: {
+    marker: "Fuse", // 名札（<script data-gcx-lib="Fuse">）重複注入の識別に使用
+    sources: ["src/libs/fuse.min.js"],
+  },
+  idb: {
+    marker: "idb",
+    sources: ["src/libs/idb.min.js"],
+  },
+  hotkeys: {
+    marker: "hotkeys",
+    sources: ["src/libs/hotkeys.min.js"],
+  },
+};
 
-const GCX_CDN_FLAG = "GCX_USE_CDN"; // CDN 利用可否フラグ（文字列 "1" を期待）
-const GCX_LIBS_FLAG = "GCX_LIBS"; // 例: "fuse,idb,hotkeys" のようにカンマ区切り
-
-// 与えられたオリジン(href)への接続準備を行う（preconnect / dns-prefetch）。同一 href は重複追加しない。
-function preconnect(href) {
-  if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`))
-    return;
-  const l1 = document.createElement("link");
-  l1.rel = "preconnect";
-  l1.href = href;
-  l1.crossOrigin = "anonymous";
-  document.head.appendChild(l1);
-  const l2 = document.createElement("link");
-  l2.rel = "dns-prefetch";
-  l2.href = href;
-  document.head.appendChild(l2);
+function getExtensionURL(relativePath) {
+  try {
+    if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+      return chrome.runtime.getURL(relativePath);
+    }
+  } catch {
+    // no-op: Firefox などの互換 API へフォールバック
+  }
+  if (typeof browser !== "undefined" && browser.runtime?.getURL) {
+    return browser.runtime.getURL(relativePath);
+  }
+  return relativePath;
 }
 
 function addScript(src, attrs = {}) {
@@ -129,50 +136,12 @@ function addScript(src, attrs = {}) {
   });
 }
 
-const CDN = {
-  // ライブラリ名 => { marker, scripts }（開発用）※ライセンスはいずれも MIT（執筆時点）
-  fuse: {
-    marker: "Fuse", // 名札（<script data-gcx-lib="Fuse">）重複注入の識別に使用
-    scripts: [
-      // フォールバック候補の CDN URL 群（順に試す）
-      "https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js",
-      "https://unpkg.com/fuse.js@6.6.2/dist/fuse.min.js",
-    ],
-  },
-  idb: {
-    marker: "idb",
-    scripts: [
-      "https://cdn.jsdelivr.net/npm/idb@7.1.1/build/iife/index-min.js",
-      "https://unpkg.com/idb@7.1.1/build/iife/index-min.js",
-    ],
-  },
-  hotkeys: {
-    marker: "hotkeys",
-    scripts: [
-      "https://cdn.jsdelivr.net/npm/hotkeys-js@3.13.8/dist/hotkeys.min.js",
-      "https://unpkg.com/hotkeys-js@3.13.8/dist/hotkeys.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/hotkeys-js/3.13.8/hotkeys.min.js",
-    ],
-  },
-};
-
-function bestOrigins(urls) {
-  // 主要 CDN ドメインに対して接続準備のみ行い、配列はそのまま返す（選別や並べ替えはしない）
-  [
-    "https://cdn.jsdelivr.net",
-    "https://unpkg.com",
-    "https://cdnjs.cloudflare.com",
-  ].forEach(preconnect); //urls.forEach((u) => preconnect(u) と同じ;
-  return urls; //forEach(preconnect());ではその場で実行し結果を返してしまう
-}
-
 function alreadyInjected(marker) {
   // 既に同じ名札(data-gcx-lib)の <script> が head にあるか
   return !!document.head.querySelector(`script[data-gcx-lib="${marker}"]`);
 }
 
-// 指定ライブラリを CDN から読み込む（開発用）
+// 指定ライブラリを拡張パッケージから読み込む（開発・本番共通）
 // 戻り値: Promise<boolean>（成功 true / 全候補失敗 false）
 // 手順:
 //  1) 定義がない場合は false
@@ -180,18 +149,14 @@ function alreadyInjected(marker) {
 //  3) 候補 URL を順に直列で試す（最初に成功した時点で終了）
 //  4) 結果を CustomEvent "gcx:cdn-loaded" で通知（{ lib, ok, error? }）
 async function injectLib(name) {
-  const spec = CDN[name];
+  const spec = LIB_SPECS[name];
   if (!spec) return false;
   if (alreadyInjected(spec.marker)) return true;
-  const urls = bestOrigins(spec.scripts); // フォールバック候補 URL 配列
   let lastErr; // 直近の失敗（全滅時のイベント detail 用）
-  for (const u of urls) {
+  for (const relative of spec.sources) {
+    const url = getExtensionURL(relative);
     try {
-      await addScript(u, {
-        "data-gcx-lib": spec.marker,
-        crossorigin: "anonymous",
-        referrerpolicy: "no-referrer",
-      });
+      await addScript(url, { "data-gcx-lib": spec.marker });
       window.dispatchEvent(
         new CustomEvent("gcx:cdn-loaded", { detail: { lib: name, ok: true } })
       );
@@ -209,19 +174,11 @@ async function injectLib(name) {
   return false;
 }
 
-// CDN ロードのトグルと一括実行（開発用）
-async function maybeLoadCDNs() {
+// ローカルバンドルをまとめて読み込む
+async function loadLocalLibs() {
   try {
-    const allow =
-      localStorage.getItem(GCX_CDN_FLAG) === "1" ||
-      document.documentElement.getAttribute("data-gcx-cdn") === "1"; // <html data-gcx-cdn="1">
-    if (!allow) return false;
-    // 読み込み対象ライブラリの決定（カンマ区切り、空白トリム）
-    const list = (localStorage.getItem(GCX_LIBS_FLAG) || "fuse,idb")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const results = await Promise.all(list.map(injectLib)); // ライブラリ単位では並列
+    const names = Object.keys(LIB_SPECS);
+    const results = await Promise.all(names.map((name) => injectLib(name)));
     return results.every(Boolean);
   } catch {
     return false;
@@ -362,13 +319,12 @@ function observe() {
 }
 
 function init() {
-  // 初期化フロー: スタイル注入 →（任意）CDN プリロード → UI 注入 → DOM 監視
+  // 初期化フロー: スタイル注入 → ライブラリ読み込み → UI 注入 → DOM 監視
   ensureStyles();
-  // 開発時のみ明示的に有効化された場合はライブラリをプリロード
-  maybeLoadCDNs();
+  loadLocalLibs();
   scanAndInject();
   observe();
-  console.debug("[GCX] sarch input injection initialized");
+  console.debug("[GCX] search input injection initialized");
 }
 
 if (document.readyState === "loading") {

@@ -11,5 +11,15 @@
       "js": ["src/content.js"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/libs/fuse.min.js",
+        "src/libs/idb.min.js",
+        "src/libs/hotkeys.min.js"
+      ],
+      "matches": ["https://classroom.google.com/*"]
+    }
   ]
 }
