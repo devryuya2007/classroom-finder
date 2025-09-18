@@ -1,0 +1,76 @@
+/* Quick search topbar styles injected via content script */
+/* nav.joJglb[role="navigation"]ロゴやメニューアイコン、ユーザーアイコンの子要素として挿入される*/
+.gcx-topbar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  min-width: 220px;
+  margin-left: auto;
+  padding: 0 6px;
+}
+
+.gcx-topbar > input.gcx-topbar-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 32px;
+  border: 1px solid rgba(95, 99, 104, 0.3);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.gcx-topbar > input.gcx-topbar-input::placeholder {
+  color: #5f6368;
+}
+
+.gcx-topbar > input.gcx-topbar-input:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15);
+  background: #fff;
+}
+
+.gcx-topbar::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.gcx-topbar::after {
+  content: "";
+  position: absolute;
+  left: 24px;
+  top: 18px;
+  width: 8px;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.gcx-topbar[data-overlay="1"] {
+  position: absolute !important;
+  left: 69%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin-left: 0 !important;
+  max-width: min(560px, 70vw);
+  width: clamp(220px, 40vw, 420px);
+  z-index: 10;
+}
+
+.gcx-topbar-host-relative {
+  position: relative;
+}

@@ -15,6 +15,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "src/gcx-topbar.css",
         "src/libs/fuse.min.js",
         "src/libs/idb.min.js",
         "src/libs/hotkeys.min.js"

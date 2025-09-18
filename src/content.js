@@ -1,86 +1,38 @@
 // Google Classroom のトップバーへ「クイック検索」UIを挿入するスクリプト
 // - ネットワーク通信は行わず、DOM 監視で UI を差し込むだけ
-// - スタイルは <style> 要素を一度だけ注入して適用する（UI 本体は後段で生成）
+// - スタイルは外部 CSS を <link> で一度だけ注入（UI 本体は後段で生成）
 // - 検索アイコンは before/after の疑似要素で CSS 描画（画像やアイコンフォント不要）
 // ここから定数定義とスタイル注入ヘルパー
 const TOPBAR_SELECTOR = 'nav.joJglb[role="navigation"]'; // 検索 UI を置くナビのセレクタ
-const STYLE_ID = "gcx-sarch-style"; // 注入する <style> の id（重複防止）
+const STYLE_ID = "gcx-sarch-style"; // 注入する <link> の id（重複防止）
+const STYLE_PATH = "src/gcx-topbar.css"; // 読み込むスタイルシートのパス
 const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
+const NAV_RELATIVE_CLASS = "gcx-topbar-host-relative"; // ラッパー配置用クラス
 
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    /* トップバー用クイック検索の見た目定義 */
-    .${TOPBAR_WRAP} {
-      position: relative;
-      display: inline-flex; /* インラインに並ぶフレックス行（右寄せしやすい） */
-      align-items: center;
-      gap: 8px;
-      max-width: 420px;
-      min-width: 220px;
-      margin-left: auto; /* ナビが flex の場合は右側に寄せるため */
-      padding: 0 6px;
+  const href = getExtensionURL(STYLE_PATH);
+  const existing = document.getElementById(STYLE_ID);
+  if (existing) {
+    if (existing.tagName === "LINK") {
+      const current = existing.getAttribute("href") || "";
+      if (current !== href) {
+        existing.setAttribute("href", href);
+      }
+      return;
     }
-    .${TOPBAR_WRAP} > input.${TOPBAR_INPUT} {
-      box-sizing: border-box;
-      width: 100%;
-      height: 36px;
-      padding: 0 12px 0 32px; /* 左側に描く検索アイコン分の余白 */
-      border: 1px solid rgba(95,99,104,0.3);
-      border-radius: 16px;
-      background: rgba(255,255,255,0.8);
-      color: inherit;
-      outline: none;
-      transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
-    }
-    .${TOPBAR_WRAP} > input.${TOPBAR_INPUT}::placeholder { color: #5f6368; }
-    .${TOPBAR_WRAP} > input.${TOPBAR_INPUT}:focus {
-      border-color: #1a73e8;
-      box-shadow: 0 0 0 3px rgba(26,115,232,0.15);
-      background: #fff;
-    }
-    .${TOPBAR_WRAP}::before {
-      /* 検索アイコン（レンズの丸）を CSS のみで描画 */
-      content: '';
-      position: absolute;
-      left: 12px;
-      width: 14px;
-      height: 14px;
-      border: 2px solid currentColor;
-      border-radius: 50%;
-      opacity: 0.55;
-      pointer-events: none;
-    }
-    .${TOPBAR_WRAP}::after {
-      /* 検索アイコン（持ち手）を CSS のみで描画 */
-      content: '';
-      position: absolute;
-      left: 24px;
-      top: 18px;
-      width: 8px;
-      height: 2px;
-      background: currentColor;
-      transform: rotate(45deg);
-      opacity: 0.55;
-      pointer-events: none;
-    }
-    .${TOPBAR_WRAP}[data-overlay="1"] {
-      /* スペースが足りず他要素と重なる場合は中央オーバーレイに切替 */
-      position: absolute !important;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      margin-left: 0 !important;
-      max-width: min(560px, 70vw);
-      width: clamp(220px, 40vw, 420px);
-      z-index: 10;
-    }
-  `;
-  document.head.appendChild(style);
+    existing.remove();
+  }
+
+  const link = document.createElement("link");
+  link.id = STYLE_ID;
+  link.rel = "stylesheet";
+  link.href = href;
+  link.addEventListener("error", () => {
+    console.warn(`[GCX] Failed to load stylesheet: ${STYLE_PATH}`);
+  });
+  document.head.appendChild(link);
 }
 
 // 後方互換用の別名（古いコードが小文字関数名を呼ぶ場合のため）
@@ -204,13 +156,13 @@ function hasTopbar(navEl) {
 function createTopbar(navEl) {
   // 検索コンテナを生成（ロールとラベルは ARIA を付与）
   const wrap = document.createElement("div"); // ラッパー
-  wrap.className = TOPBAR_WRAP;
+  wrap.classList.add(TOPBAR_WRAP);
   wrap.setAttribute("role", "search");
   wrap.setAttribute("aria-label", "クイック検索");
 
   const input = document.createElement("input"); // 入力ボックス
   input.type = "search";
-  input.className = TOPBAR_INPUT;
+  input.classList.add(TOPBAR_INPUT);
   input.placeholder = "クラス全体を検索…";
   input.setAttribute("role", "searchbox");
   input.autocapitalize = "off";
@@ -254,7 +206,11 @@ function placeTopbar(navEl, bar) {
 
   // ナビが flex でない、または他要素と重なる場合はオーバーレイに切替
   const isFlex = cs.display.includes("flex");
-  if (cs.position === "static") navEl.style.position = "relative";
+  if (cs.position === "static") {
+    navEl.classList.add(NAV_RELATIVE_CLASS);
+  } else {
+    navEl.classList.remove(NAV_RELATIVE_CLASS);
+  }
 
   requestAnimationFrame(() => {
     const barRect = bar.getBoundingClientRect(); // 検索バーの大きさを取得　他の要素と重なるのか
@@ -303,6 +259,7 @@ function injectTopbar(root = document) {
 }
 
 function scanAndInject(root = document) {
+  ensureStyles();
   injectTopbar(root); //将来的に拡張したり他のUIを追加する場合に備えて引数rootを受け取るようにしておく
 }
 
@@ -313,6 +270,7 @@ function observe() {
       // Classroomは子要素の変化が大きいSPAなのでchildListだけで十分
       //もし他の変化も監視するならattributesやcharacterDataも追加する
       if (m.type === "childList") {
+        ensureStyles();
         injectTopbar();
         break;
       }
@@ -323,7 +281,10 @@ function observe() {
     subtree: true,
   });
   // 監視で取りこぼした場合のフォールバックとして定期チェック
-  setInterval(() => injectTopbar(), 2000);
+  setInterval(() => {
+    ensureStyles();
+    injectTopbar();
+  }, 2000);
 }
 
 function init() {
