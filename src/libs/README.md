@@ -2,6 +2,10 @@
 
 このディレクトリには、拡張機能内で直接読み込むスタンドアロン版ライブラリを格納しています。外部 CDN へ依存しない方針（`README.md`・`docs/AGENTS.md` 参照）に従い、ここに置いたファイルのみを `content.js` からロードします。
 
+## CSP に関する注意
+
+Google Classroom 側の Content Security Policy と MV3 拡張機能の制約により、ページに対して外部ホストのスクリプトを挿入することはできません。必ず拡張パッケージに同梱したファイルを `web_accessible_resources` 経由で配信し、`content.js` からは `chrome.runtime.getURL(...)` で解決したパスだけを利用してください。CSP 違反が発生した場合は Console に `Refused to load the script` などのメッセージが出力されるので、外部 URL を参照していないか確認します。
+
 ## バージョン一覧
 
 | ライブラリ | 同梱ファイル | バージョン | ライセンス | Upstream |
@@ -41,4 +45,3 @@
 - フィールドが Global オブジェクトに公開されていない場合は、バンドル形式が IIFE か確認（ESM 版では `Fuse` や `hotkeys` が `window` に載らない）。
 - Size が大きく変化した場合は、圧縮設定や不要なソースマップが含まれていないか再チェック。
 - CSP によってブロックされる場合は、`manifest.json` の `web_accessible_resources` が最新のファイル名を含むか確認する。
-
