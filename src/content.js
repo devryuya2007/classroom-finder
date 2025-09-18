@@ -9,17 +9,16 @@ const STYLE_PATH = "src/gcx-topbar.css"; // 読み込むスタイルシートの
 const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 const NAV_RELATIVE_CLASS = "gcx-topbar-host-relative"; // ラッパー配置用クラス
+const NAV_LAYOUT_CLASS = "gcx-topbar-host-flex"; // ナビゲーション全体をフレックスにする補助クラス
+const HEADER_HOST_SELECTOR = ".aqdrmf-rymPhb.O68mGe-hqgu2c"; // Classroom トップバーのラッパー
 
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
   const href = getExtensionURL(STYLE_PATH);
   const existing = document.getElementById(STYLE_ID);
   if (existing) {
-    if (existing.tagName === "LINK") {
-      const current = existing.getAttribute("href") || "";
-      if (current !== href) {
-        existing.setAttribute("href", href);
-      }
+    const current = existing.getAttribute("href");
+    if (existing.tagName === "LINK" && current === href) {
       return;
     }
     existing.remove();
@@ -30,7 +29,7 @@ function ensureStyles() {
   link.rel = "stylesheet";
   link.href = href;
   link.addEventListener("error", () => {
-    console.warn(`[GCX] Failed to load stylesheet: ${STYLE_PATH}`);
+    console.warn(`[GCX] Failed to load stylesheet from ${href}`);
   });
   document.head.appendChild(link);
 }
@@ -116,7 +115,6 @@ async function injectLib(name) {
         source: url,
       };
       window.dispatchEvent(new CustomEvent("gcx:libs-loaded", { detail }));
-      window.dispatchEvent(new CustomEvent("gcx:cdn-loaded", { detail }));
       return true;
     } catch (err) {
       lastErr = err;
@@ -149,8 +147,18 @@ async function loadLocalLibs() {
 
 // ===== トップバー UI (nav.joJglb) =====
 function hasTopbar(navEl) {
-  // 同じ nav 内に既に UI があれば重複挿入しない
-  return !!navEl.querySelector(`:scope > .${TOPBAR_WRAP}`);
+  // 同じ nav 内または親ラッパー内に既に UI があれば重複挿入しない
+  if (navEl.querySelector(`:scope > .${TOPBAR_WRAP}`)) return true;
+  const host = navEl.closest(HEADER_HOST_SELECTOR);
+  return !!host?.querySelector(`:scope > .${TOPBAR_WRAP}`);
+}
+
+function isTopHeaderNav(navEl) {
+  if (!navEl) return false;
+  if (!navEl.matches(TOPBAR_SELECTOR)) return false;
+  // Classroom のトップバーは header (role=banner) 内に配置され、ブランドリンク onkcGd を持つ
+  if (!navEl.closest('header, [role="banner"]')) return false;
+  return !!navEl.querySelector("a.onkcGd");
 }
 
 function createTopbar(navEl) {
@@ -194,22 +202,31 @@ function createTopbar(navEl) {
 // メニュー側ヘルパー群は削除済み
 
 function placeTopbar(navEl, bar) {
-  const cs = getComputedStyle(navEl);
-  // 可能ならロゴ/ブランドリンクの直後に挿入。見つからなければ末尾に追加。
-  const brand =
-    navEl.querySelector("a.onkcGd") || navEl.querySelector("a[aria-label]"); // ブランド/ロゴリンク候補
-  if (brand && brand.parentElement === navEl) {
-    brand.insertAdjacentElement("afterend", bar);
-  } else {
-    navEl.appendChild(bar);
+  const host = navEl.closest(HEADER_HOST_SELECTOR) || navEl;
+  const firstChild = host.firstElementChild;
+
+  if (host.querySelector(`:scope > .${TOPBAR_WRAP}`)) {
+    return false;
   }
 
+  host.classList.add(NAV_LAYOUT_CLASS);
+  if (host !== navEl) {
+    navEl.classList.add(NAV_LAYOUT_CLASS);
+  }
+
+  if (firstChild) {
+    host.insertBefore(bar, firstChild);
+  } else {
+    host.appendChild(bar);
+  }
+
+  const cs = getComputedStyle(host);
   // ナビが flex でない、または他要素と重なる場合はオーバーレイに切替
   const isFlex = cs.display.includes("flex");
   if (cs.position === "static") {
-    navEl.classList.add(NAV_RELATIVE_CLASS);
+    host.classList.add(NAV_RELATIVE_CLASS);
   } else {
-    navEl.classList.remove(NAV_RELATIVE_CLASS);
+    host.classList.remove(NAV_RELATIVE_CLASS);
   }
 
   requestAnimationFrame(() => {
@@ -219,7 +236,7 @@ function placeTopbar(navEl, bar) {
       overlapped = true;
     } else {
       const others = Array.from(
-        navEl.querySelectorAll('a,button,[role="button"],input')
+        host.querySelectorAll('a,button,[role="button"],input')
       ).filter((el) => el !== bar && !bar.contains(el)); // 自分自身と子孫は除外
       for (const el of others) {
         const r = el.getBoundingClientRect();
@@ -244,6 +261,8 @@ function placeTopbar(navEl, bar) {
       bar.removeAttribute("data-overlay");
     }
   });
+
+  return true;
 }
 
 //rootが指定されないならdefaultでdocument
@@ -251,8 +270,9 @@ function injectTopbar(root = document) {
   let added = 0; // 追加件数
   root.querySelectorAll(TOPBAR_SELECTOR).forEach((navEl) => {
     if (hasTopbar(navEl)) return;
+    if (!isTopHeaderNav(navEl)) return;
     const bar = createTopbar(navEl); // div > input を生成
-    placeTopbar(navEl, bar); // アンカーリンクがあるならその直後に挿入する関数ないなら末尾に追加
+    if (!placeTopbar(navEl, bar)) return;
     added++;
   });
   return added > 0; // 一個でも追加できたら終了

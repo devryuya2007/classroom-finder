@@ -74,3 +74,8 @@
 .gcx-topbar-host-relative {
   position: relative;
 }
+
+.gcx-topbar-host-flex {
+  display: flex;
+  align-items: center;
+}
