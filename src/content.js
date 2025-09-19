@@ -216,23 +216,20 @@ function createTopbar() {
 
   const suggestions = document.createElement("div");
   suggestions.classList.add("gcx-suggestions");
-  suggestions.hidden = true;
   suggestions.setAttribute("aria-live", "polite");
+  ensureSuggestionsStructure(suggestions);
 
   input.addEventListener("focus", () => {
     wrap.classList.add(EXPANDED_CLASS);
-    suggestions.hidden = false;
-    ensureSuggestionsStructure(suggestions);
   });
   input.addEventListener("blur", () => {
     wrap.classList.remove(EXPANDED_CLASS);
-    suggestions.hidden = true;
   });
 
   field.appendChild(icon);
   field.appendChild(input);
+  field.appendChild(suggestions);
   wrap.appendChild(field);
-  wrap.appendChild(suggestions);
   return wrap;
 }
 
