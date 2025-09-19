@@ -8,6 +8,7 @@ const STYLE_PATH = "src/gcx-topbar.css"; // 読み込むスタイルシートの
 const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 const TOPBAR_ID = "gcx-topbar-overlay"; // DOM 上の ID（重複防止）
+const EXPANDED_CLASS = "is-expanded";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const ICON_PATH_DATA = [
   "M172.625,102.4c-42.674,0-77.392,34.739-77.392,77.438c0,5.932,4.806,10.74,10.733,10.74c5.928,0,10.733-4.808,10.733-10.74c0-30.856,25.088-55.959,55.926-55.959c5.928,0,10.733-4.808,10.733-10.74C183.358,107.208,178.553,102.4,172.625,102.4z",
@@ -166,6 +167,17 @@ function ensureSVG() {
   return svg;
 }
 
+function ensureSuggestionsStructure(container) {
+  if (!container) return null;
+  let list = container.querySelector("ul");
+  if (!list) {
+    list = document.createElement("ul");
+    list.classList.add("suggestions-ul");
+    container.appendChild(list);
+  }
+  return list;
+}
+
 // ===== トップバー UI（固定オーバーレイ） =====
 function createTopbar() {
   // 検索コンテナを生成（ロールとラベルは ARIA を付与）
@@ -203,16 +215,18 @@ function createTopbar() {
   ].forEach((t) => input.addEventListener(t, stop, { passive: true }));
 
   const suggestions = document.createElement("div");
+  suggestions.classList.add("gcx-suggestions");
   suggestions.hidden = true;
   suggestions.setAttribute("aria-live", "polite");
 
   input.addEventListener("focus", () => {
+    wrap.classList.add(EXPANDED_CLASS);
     suggestions.hidden = false;
-    suggestions.classList.add("gcx-suggestions");
+    ensureSuggestionsStructure(suggestions);
   });
   input.addEventListener("blur", () => {
+    wrap.classList.remove(EXPANDED_CLASS);
     suggestions.hidden = true;
-    suggestions.classList.remove("gcx-suggestions");
   });
 
   field.appendChild(icon);

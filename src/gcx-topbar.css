@@ -5,7 +5,8 @@
   left: 69%;
   transform: translateX(-50%);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   width: clamp(240px, 38vw, 420px);
   padding: 6px 10px;
@@ -69,12 +70,27 @@
 
 .gcx-topbar .gcx-suggestions {
   margin-top: 10px;
-  padding: 12px;
-  border-radius: 14px;
+  width: 100%;
+  min-height: 140px;
+  padding: 16px;
+  border-radius: 18px;
   background: rgba(95, 99, 104, 0.08);
   color: #202124;
-  opacity: 1;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 0.2s ease;
+}
+
+.gcx-topbar.is-expanded .gcx-suggestions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.gcx-topbar .suggestions-ul {
+  display: block;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 @media (max-width: 600px) {
