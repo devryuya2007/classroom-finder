@@ -16,6 +16,16 @@ const ICON_PATH_DATA = [
   "M499.516,439.154L386.275,326.13c-16.119,23.552-36.771,44.202-60.309,60.345l113.241,113.024c8.329,8.334,19.246,12.501,30.148,12.501c10.916,0,21.833-4.167,30.162-12.501C516.161,482.83,516.161,455.822,499.516,439.154z",
 ];
 
+// Classroom DOM reference (samples/Classroom-sample.html より)
+// - メイン領域: div[role="main"]（SPA でも維持されるロール属性）
+// - コース一覧ラッパー: div[role="main"] 内の ol[jsname="bN97Pc"] （class="JwPp0e avfKs" はハッシュ化）
+// - 各コースカード: li[data-course-id][data-user-id] （class="gHz6xd…" はハッシュ化、data-* は安定）
+//     * 本体ブロック: div.Tc9hUd.CNpREd.ee1HBc（クラス名は参考メモ：変化しやすい）
+//     * タイトル: div.ScpeUc.Vu2fZd.XwD7Ke → テキスト（例: 体育　３－１・M）
+//     * 担当者: div.z07MGc.Vu2fZd.jJIbcc.T30lh → 教員名
+//     * 最新通知: div.xo2x2e > span.Y5vSD / span.nforOe
+// - カード内ショートカット（課題・ドライブなど）: div.SZ0kZe 以下の div.ne2Ple-oshW8e-V67aGc
+
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
   const href = getExtensionURL(STYLE_PATH);
@@ -276,3 +286,13 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+// Classroom DOM reference (samples/Classroom-sample.html より)
+// - メイン領域: div[role="main"]（SPA でも維持されるロール属性）
+// - コース一覧ラッパー: div[role="main"] 内の ol[jsname="bN97Pc"] （class="JwPp0e avfKs" はハッシュ化）
+// - 各コースカード: li[data-course-id][data-user-id] （class="gHz6xd…" はハッシュ化、data-* は安定）
+//     * 本体ブロック: div.Tc9hUd.CNpREd.ee1HBc（クラス名は参考メモ：変化しやすい）
+//     * タイトル: div.ScpeUc.Vu2fZd.XwD7Ke → テキスト（例: 体育　３－１・M）
+//     * 担当者: div.z07MGc.Vu2fZd.jJIbcc.T30lh → 教員名
+//     * 最新通知: div.xo2x2e > span.Y5vSD / span.nforOe
+// - カード内ショートカット（課題・ドライブなど）: div.SZ0kZe 以下の div.ne2Ple-oshW8e-V67aGc
