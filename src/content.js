@@ -215,7 +215,7 @@ async function loadStreamPostsFromDb() {
   });
 }
 
-// ２つのオブジェが違うかどうか、同じじゃないならtrue
+// ２つのオブジェが違うかどうか、違うならtrue
 function diffPosts(oldList, newList) {
   if (oldList.length !== newList.length) return true;
   const map = new Map(oldList.map((p) => [p.streamId, JSON.stringify(p)]));
@@ -369,7 +369,7 @@ function ensureSVG() {
 
   return svg;
 }
-
+// containerにulがなかったらulをcontainerをappend
 function ensureSuggestionsStructure(container) {
   if (!container) return null;
   let list = container.querySelector("ul");
@@ -428,6 +428,7 @@ function createTopbar() {
   input.addEventListener("blur", () => {
     wrap.classList.remove(EXPANDED_CLASS);
   });
+  input.addEventListener("input", handler);
 
   field.appendChild(icon);
   field.appendChild(input);
@@ -476,8 +477,39 @@ function observe() {
 
 let fuse;
 
-function onSerchInput() {
+function onSerchInput(event) {
   const query = event.target.value.trim();
+  if (!query || !fuse) {
+    renderSuggestions([]);
+    return;
+  }
+  const results = fuse.search(query);
+  renderSuggestions(results.map((item) => item.item)); //{item,score,refindex,...}
+}
+
+function renderSuggestions(items = []) {
+  const container = document.querySelector(".gcx-suggestions");
+  if (!container) return;
+  const list = ensureSuggestionsStructure(container);
+  if (!list) return;
+
+  list.replaceChildren();
+
+  if (!items.length) {
+    container.classList.remove("has-results");
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.classList.add("suggestion-item");
+    li.textContent = typeof item === "string" ? item : "";
+    fragment.appendChild(li);
+  }
+
+  list.appendChild(fragment);
+  container.classList.add("has-results");
 }
 
 function init() {
