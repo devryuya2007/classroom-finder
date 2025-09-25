@@ -478,7 +478,30 @@ function observe() {
   setInterval(() => ensureTopbar(), 2000);
 }
 
-let fuse;
+const options = {
+  includeScore: true,
+  shouldSort: true,
+  threshold: 0.3,
+  keys: [
+    { name: "teacherName", weight: 0.4 },
+    { name: "body", weight: 0.4 },
+    { name: "attachments.title", weight: 0.2 },
+    { name: "postedAt.text", weight: 0.05 },
+  ],
+  minMatchCharLength: 2,
+};
+
+let fuse = null;
+async function initFuse() {
+  try {
+    const posts = await loadStreamPostsFromDb();
+    fuse = new window.Fuse(posts, options);
+  } catch (error) {
+    console.error("[GCX] Failed to init fuse", error);
+    fuse = null;
+  }
+}
+
 //ユーザーからの入力をfuseのsearchにかけている。返り値は{item,score,refindex,...}
 function onSerchInput(event) {
   const query = event.target.value.trim();
@@ -519,6 +542,7 @@ function init() {
   // 初期化フロー: スタイル注入 → ライブラリ読み込み → UI 注入 → DOM 監視
   ensureTopbar();
   loadLocalLibs();
+  initFuse();
   observe();
   console.debug("[GCX] search input injection initialized");
 }
