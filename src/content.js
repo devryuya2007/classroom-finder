@@ -270,8 +270,6 @@ function getExtensionURL(relativePath) {
   return relativePath;
 }
 
-
-
 // 指定ライブラリを拡張パッケージから読み込む（開発・本番共通）
 // 戻り値: Promise<boolean>（成功 true / 全候補失敗 false）
 // 手順:
@@ -319,8 +317,6 @@ async function loadLocalLibs() {
     return false;
   }
 }
-
-
 
 // メニュー側への注入は削除し、トップバー専用に単純化
 
@@ -485,7 +481,7 @@ function onSerchInput(event) {
   renderSuggestions(results.map((item) => item.item)); //{item,score,refindex,...}
 }
 //　ヒットしたfuseのうちitemをliに入れる。fragmentで一括で入れている。。
-function renderSuggestions(items = []) {
+function renderSuggestions(items) {
   const container = document.querySelector(".gcx-suggestions");
   if (!container) return;
   const list = ensureSuggestionsStructure(container);
