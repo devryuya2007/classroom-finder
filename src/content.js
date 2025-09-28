@@ -47,21 +47,36 @@ function ensureStyles() {
   const href = getExtensionURL(STYLE_PATH);
   const existing = document.getElementById(STYLE_ID);
   if (existing) {
-    const current = existing.getAttribute("href");
-    if (existing.tagName === "LINK" && current === href) {
-      return;
-    }
+    const current =
+      existing instanceof HTMLLinkElement
+        ? existing.getAttribute("href")
+        : existing instanceof HTMLStyleElement
+        ? existing.dataset.origin
+        : null;
+    if (current === href) return;
     existing.remove();
   }
 
-  const link = document.createElement("link");
-  link.id = STYLE_ID;
-  link.rel = "stylesheet";
-  link.href = href;
-  link.addEventListener("error", () => {
-    console.warn(`[GCX] Failed to load stylesheet from ${href}`);
-  });
-  document.head.appendChild(link);
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.dataset.origin = href;
+  style.textContent = "/* [GCX] topbar styles loading... */";
+  document.head.appendChild(style);
+
+  fetch(href)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.text();
+    })
+    .then((css) => {
+      style.textContent = css;
+    })
+    .catch((error) => {
+      console.warn(`[GCX] Failed to load stylesheet from ${href}`, error);
+      style.remove();
+    });
 }
 
 //取得してオブジェクトにして返す。
@@ -71,25 +86,27 @@ function extractStreamData(root = document) {
     const header =
       element.querySelector('[role="heading"][aria-level="2"]') || element;
 
-    const actorSource = header.querySelector(
-      "[data-actor-name], [data-entity-name]"
+    const headerTexts = collectJsnameTexts(header);
+    const headerFallbackText = normalizeWhitespace(header.textContent);
+
+    const teacherText = selectTeacherText(
+      headerTexts,
+      headerFallbackText,
+      header
     );
-    const actorText =
-      normalizeWhitespace(actorSource?.textContent) ||
-      normalizeWhitespace(header.textContent);
 
     const timeEl = header.querySelector("time[datetime], [data-timestamp]");
+    const timeFromAttr = normalizeWhitespace(timeEl?.textContent);
+    const timeFromJsname = selectTimeText(headerTexts, timeFromAttr, header);
     const postedAt = {
-      text: normalizeWhitespace(timeEl?.textContent),
+      text: timeFromJsname,
       datetime:
         timeEl?.getAttribute?.("datetime") ||
         timeEl?.getAttribute?.("data-timestamp") ||
         "",
     };
-    const bodySource =
-      element.querySelector("[data-stream-post-body]") ||
-      element.querySelector('[jsname="r4nke"]');
-    const bodyText = normalizeWhitespace(bodySource?.textContent || "");
+
+    const bodyText = selectBodyText(element, header);
 
     const attachmentNodes = element.querySelectorAll(
       '[data-material-parent-id] [data-attachment-type], [data-material-parent-id] [role="link"], [data-material-parent-id] a[href]'
@@ -120,7 +137,7 @@ function extractStreamData(root = document) {
       element,
       fallbackId: presetId,
       index,
-      teacherName: actorText,
+      teacherName: teacherText,
       postedAt,
       bodyText,
     });
@@ -128,12 +145,124 @@ function extractStreamData(root = document) {
     return {
       index,
       streamId,
-      teacherName: actorText,
+      teacherName: teacherText,
       postedAt,
       body: bodyText,
       attachments,
     };
   });
+}
+//jsnameを使ってDOMを取得
+function collectJsnameTexts(scope) {
+  if (!scope) return [];
+  const results = [];
+  const seen = new Set();
+  scope.querySelectorAll("[jsname]").forEach((node) => {
+    if (!node || node.getAttribute?.("aria-hidden") === "true") return;
+    const text = normalizeWhitespace(node.textContent || "");
+    if (!text) return;
+    const key = `${node.getAttribute("jsname") || ""}|${text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    results.push({ node, text, jsname: node.getAttribute("jsname") || "" });
+  });
+  return results;
+}
+
+function textFromSelectors(scope, selectors = []) {
+  if (!scope) return "";
+  for (const selector of selectors) {
+    const node = scope.querySelector(selector);
+    if (node) {
+      const text = normalizeWhitespace(node.textContent || "");
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function selectTeacherText(headerTexts, fallbackText = "", headerScope) {
+  const preferred = textFromSelectors(headerScope, [
+    ".Vu2fZd.asQXV",
+    ".lziZub .Vu2fZd",
+  ]);
+  if (preferred) return stripHonorifics(preferred);
+
+  const teacherHints =
+    /さん|先生|教員|教師|投稿者|作成者|shared by|posted by|先生から|教師から/i;
+  const candidateByHint = headerTexts.find(({ text }) =>
+    teacherHints.test(text)
+  );
+  if (candidateByHint) return stripHonorifics(candidateByHint.text);
+
+  const shortCandidate = headerTexts
+    .filter(({ text }) => text.length <= 40 && text.split(/\s+/).length <= 6)
+    .sort((a, b) => a.text.length - b.text.length)[0];
+  if (shortCandidate) return stripHonorifics(shortCandidate.text);
+
+  if (fallbackText) {
+    return stripHonorifics(fallbackText.split(/\s+/)[0] || fallbackText);
+  }
+  return "";
+}
+
+function stripHonorifics(value) {
+  return normalizeWhitespace(
+    value
+      .replace(/さん|先生|先生方|先生から|教師から/g, "")
+      .replace(/^投稿\s*:?\s*/, "")
+  );
+}
+
+function selectTimeText(headerTexts, fallback = "", headerScope) {
+  const explicit = textFromSelectors(headerScope, [
+    ".IMvYId.dDKhVc.Vu2fZd",
+    ".IMvYId .jzdBjc",
+  ]);
+  if (explicit) return explicit;
+
+  const timePattern = /[0-9０-９年月日時分秒前後週曜日AMPM午前午後\.\/:\-]/i;
+  const candidate = headerTexts.find(({ text }) => timePattern.test(text));
+  if (candidate) return candidate.text;
+  return fallback;
+}
+
+function selectBodyText(element, header) {
+  const preferred = textFromSelectors(element, [
+    '[jsname="z3vRcc"]',
+    ".lziZub .jzdBjc",
+    ".n8L8cc .jzdBjc",
+  ]);
+  if (preferred) return preferred;
+
+  const bodyCandidates = collectJsnameTexts(element).filter(
+    ({ node, text }) => {
+      if (!text) return false;
+      if (header && header.contains(node)) return false;
+      if (node.closest("nav, button, label, svg")) return false;
+      if (node.getAttribute("role") === "button") return false;
+      return text.length >= 4;
+    }
+  );
+
+  bodyCandidates.sort((a, b) => b.text.length - a.text.length);
+  if (bodyCandidates.length) {
+    return bodyCandidates[0].text;
+  }
+
+  const legacySource =
+    element.querySelector("[data-stream-post-body]") ||
+    element.querySelector('[jsname="r4nke"]');
+  if (legacySource) {
+    return normalizeWhitespace(legacySource.textContent || "");
+  }
+
+  const fullText = normalizeWhitespace(element.textContent || "");
+  const headerText = normalizeWhitespace(header?.textContent || "");
+  if (headerText && fullText.startsWith(headerText)) {
+    return normalizeWhitespace(fullText.slice(headerText.length));
+  }
+  return fullText;
 }
 //文字列化し、半角スペースに統一して返す
 function normalizeWhitespace(value) {
@@ -143,9 +272,10 @@ function normalizeWhitespace(value) {
     .trim();
 }
 //extractStreamDataからindex streamId + elementを返す（配列 > オブジェ。）
-const STREAM_SELECTOR_PRIMARY = "[data-stream-item-id]";
+const STREAM_SELECTOR_PRIMARY =
+  'div[jscontroller="h38nBf"][data-stream-item-id], div[jscontroller="dk8rTb"][data-stream-item-id]';
 const STREAM_SELECTOR_FALLBACK =
-  'article[jsmodel*="N2jS6b"], div[jsmodel*="N2jS6b"], li[jsmodel*="N2jS6b"]';
+  'div[data-stream-item-id][jsmodel*="N2jS6b"], article[data-stream-item-id][jsmodel*="N2jS6b"]';
 
 let domFallbackLogged = false; // 初心者向けメモ: 同じ警告を何度も出さないためのフラグ
 let idFallbackLogged = false;
@@ -157,7 +287,7 @@ function collectStreamElements(root = document) {
   if (elements.length === 0) {
     const fallback = [
       ...(root?.querySelectorAll(STREAM_SELECTOR_FALLBACK) || []),
-    ].filter((el) => el.querySelector("[data-material-parent-id]"));
+    ];
 
     if (fallback.length && !domFallbackLogged) {
       console.warn(
@@ -169,9 +299,22 @@ function collectStreamElements(root = document) {
     elements = fallback;
   }
 
-  return elements.map((element, index) => ({
+  const unique = new Map();
+  for (const element of elements) {
+    const streamId =
+      element.dataset?.streamItemId ||
+      element.getAttribute?.("data-stream-item-id") ||
+      element.getAttribute?.("data-item-id") ||
+      "";
+    if (!streamId) continue;
+    if (!unique.has(streamId)) {
+      unique.set(streamId, element);
+    }
+  }
+
+  return Array.from(unique.entries()).map(([streamId, element], index) => ({
     index: index + 1,
-    streamId: element.dataset?.streamItemId || element.getAttribute?.("data-stream-item-id") || "",
+    streamId,
     element,
   }));
 }
@@ -237,8 +380,11 @@ function openStreamDB() {
   return request;
 }
 // openしたstoreにextractStreamData()をそのまま追加
-async function persistStreamData(root = document) {
-  const posts = extractStreamData(root);
+async function persistStreamData(rootOrPosts = document) {
+  const posts = Array.isArray(rootOrPosts)
+    ? rootOrPosts
+    : extractStreamData(rootOrPosts);
+  if (!posts.length) return { stored: 0, posts: [] };
   const request = openStreamDB();
 
   return new Promise((resolve, reject) => {
@@ -294,10 +440,9 @@ async function loadStreamPostsFromDb() {
 }
 
 // ２つのオブジェが違うかどうか、違うならtrue
-function diffPosts(oldList, newList) {
-  if (oldList.length !== newList.length) return true;
-  const map = new Map(oldList.map((p) => [p.streamId, JSON.stringify(p)]));
-  return newList.some((p) => map.get(p.streamId) !== JSON.stringify(p));
+function findNewPosts(oldList, newList) {
+  const known = new Set(oldList.map((p) => p.streamId));
+  return newList.filter((post) => post.streamId && !known.has(post.streamId));
 }
 
 let syncInFlight = false;
@@ -311,8 +456,17 @@ async function syncStreamPosts(root = document) {
       loadStreamPostsFromDb(),
       Promise.resolve(extractStreamData(root)),
     ]);
-    if (diffPosts(savedPosts, currentPosts)) {
-      await persistStreamData(root);
+
+    if (!currentPosts.length) {
+      return; //投稿が描画されるまで保存を触らない。
+    }
+
+    if (!currentPosts.length) {
+      return;
+    }
+    const newPosts = findNewPosts(savedPosts, currentPosts);
+    if (newPosts.length) {
+      await persistStreamData(newPosts);
       const updated = await loadStreamPostsFromDb();
       if (fuse) {
         fuse.setCollection(updated); //元データが増えたら最新の配列に差し替えるAPI
@@ -666,7 +820,6 @@ if (document.readyState === "loading") {
   init();
 }
 
-
 // jsmodel = "N2jS6b"ストリームタブの投稿クラス
 
 // Classroom DOM ラベル備忘録（安定属性のみ）
@@ -680,13 +833,3 @@ if (document.readyState === "loading") {
 // data-drive-id → Google ドライブ添付のファイル ID
 // aria-label / aria-labelledby → 代替テキストやタイトルの参照
 // role="link" / a[href] → 添付アイテムへのリンク本体
-
-// Debug helpers -- remove when not needed
-if (typeof window !== "undefined") {
-  window.__gcxDebug = {
-    extractStreamData,
-    loadStreamPostsFromDb,
-    syncStreamPosts,
-    getFuse: () => fuse,
-  };
-}

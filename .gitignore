@@ -28,3 +28,4 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+config/api-credentials.json
