@@ -320,6 +320,34 @@ async function loadLocalLibs() {
 
 // メニュー側への注入は削除し、トップバー専用に単純化
 
+// フォーカス制御専用のクラス（オブジェクト指向で管理）
+class TopbarFocusController {
+  // wrapElement: .gcx-topbar の要素をそのまま受け取る
+  constructor(wrapElement) {
+    this.wrap = wrapElement;
+  }
+
+  // 入力欄などがフォーカスを得た瞬間に展開クラスを追加
+  open() {
+    this.wrap.classList.add(EXPANDED_CLASS);
+  }
+
+  // focusout 時に「次のフォーカス先」がトップバー外なら閉じる
+  handleFocusOut(event) {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget && this.wrap.contains(nextTarget)) {
+      return; // まだトップバー内で操作中なので閉じない
+    }
+
+    const active = document.activeElement;
+    if (active && this.wrap.contains(active)) {
+      return; // activeElement が内側なら引き続き開いたまま
+    }
+
+    this.wrap.classList.remove(EXPANDED_CLASS);
+  }
+}
+
 function ensureSVG() {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.classList.add("icon-svg");
@@ -391,12 +419,17 @@ function createTopbar() {
   suggestions.setAttribute("aria-live", "polite");
   ensureSuggestionsStructure(suggestions);
 
+  const focusController = new TopbarFocusController(wrap);
   input.addEventListener("focus", () => {
-    wrap.classList.add(EXPANDED_CLASS);
+    focusController.open();
   });
-  input.addEventListener("blur", () => {
-    wrap.classList.remove(EXPANDED_CLASS);
-  });
+  wrap.addEventListener(
+    "focusout",
+    (event) => {
+      focusController.handleFocusOut(event);
+    },
+    true
+  );
   input.addEventListener("input", onSerchInput);
 
   field.appendChild(icon);
@@ -498,6 +531,7 @@ function renderSuggestions(items) {
   for (const item of items) {
     const li = document.createElement("li");
     li.classList.add("suggestion-item");
+    li.tabIndex = 0; // 初心者向けメモ: tabIndex を付けるとフォーカス移動できる
 
     const header = document.createElement("div");
     header.classList.add("suggestion-header");
