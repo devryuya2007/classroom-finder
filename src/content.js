@@ -67,7 +67,7 @@ function ensureStyles() {
 //取得してオブジェクトにして返す。
 function extractStreamData(root = document) {
   const entries = collectStreamElements(root);
-  return entries.map(({ index, streamId, element }) => {
+  return entries.map(({ index, element, streamId: presetId }) => {
     const header =
       element.querySelector('[role="heading"][aria-level="2"]') || element;
 
@@ -116,6 +116,15 @@ function extractStreamData(root = document) {
       return { type, driveId, href, title };
     });
 
+    const streamId = deriveStreamId({
+      element,
+      fallbackId: presetId,
+      index,
+      teacherName: actorText,
+      postedAt,
+      bodyText,
+    });
+
     return {
       index,
       streamId,
@@ -134,13 +143,82 @@ function normalizeWhitespace(value) {
     .trim();
 }
 //extractStreamDataからindex streamId + elementを返す（配列 > オブジェ。）
+const STREAM_SELECTOR_PRIMARY = "[data-stream-item-id]";
+const STREAM_SELECTOR_FALLBACK =
+  'article[jsmodel*="N2jS6b"], div[jsmodel*="N2jS6b"], li[jsmodel*="N2jS6b"]';
+
+let domFallbackLogged = false; // 初心者向けメモ: 同じ警告を何度も出さないためのフラグ
+let idFallbackLogged = false;
+
 function collectStreamElements(root = document) {
-  const elements = [...(root?.querySelectorAll("[data-stream-item-id]") || [])];
+  const primary = [...(root?.querySelectorAll(STREAM_SELECTOR_PRIMARY) || [])];
+  let elements = primary;
+
+  if (elements.length === 0) {
+    const fallback = [
+      ...(root?.querySelectorAll(STREAM_SELECTOR_FALLBACK) || []),
+    ].filter((el) => el.querySelector("[data-material-parent-id]"));
+
+    if (fallback.length && !domFallbackLogged) {
+      console.warn(
+        "[GCX] Fallback selector engaged. Classroom DOM might have changed."
+      );
+      domFallbackLogged = true;
+    }
+
+    elements = fallback;
+  }
+
   return elements.map((element, index) => ({
     index: index + 1,
-    streamId: element.dataset.streamItemId || "",
+    streamId: element.dataset?.streamItemId || element.getAttribute?.("data-stream-item-id") || "",
     element,
   }));
+}
+
+// DOM から ID が取れない場合の保険。投稿の先生名/日時/本文からハッシュを作る。
+function deriveStreamId({
+  element,
+  fallbackId,
+  index,
+  teacherName,
+  postedAt,
+  bodyText,
+}) {
+  const directId =
+    fallbackId ||
+    element?.dataset?.streamItemId ||
+    element?.getAttribute?.("data-stream-item-id") ||
+    element?.getAttribute?.("data-item-id") ||
+    element?.id;
+
+  if (directId) return directId;
+
+  const seedParts = [
+    teacherName || "",
+    postedAt?.datetime || "",
+    (bodyText || "").slice(0, 160),
+    String(index),
+  ];
+  const seed = seedParts.join("|");
+
+  if (!idFallbackLogged) {
+    console.warn(
+      "[GCX] Stream ID fallback used. Check selector coverage in content.js."
+    );
+    idFallbackLogged = true;
+  }
+
+  return `auto-${hashString(seed)}`;
+}
+
+// 超シンプルなハッシュ関数（djb2 風）で安定IDを生成
+function hashString(input) {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 33) ^ input.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 const STREAM_DB_NAME = "gcx-stream";
