@@ -11,9 +11,13 @@
     "dev": "echo 'Load extension via chrome://extensions (unpacked)'",
     "build": "echo 'No build step required. Optionally add Vite/Rollup.'",
     "test": "echo 'No tests defined' && exit 0",
-    "lint": "echo 'ESLint not configured yet' && exit 0"
+    "lint": "echo 'ESLint not configured yet' && exit 0",
+    "check:db": "node scripts/validate-indexeddb.mjs"
   },
   "dependencies": {
     "fuse.js": "^6.6.2"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^5.0.2"
   }
 }

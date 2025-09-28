@@ -237,8 +237,19 @@ function openStreamDB() {
   return request;
 }
 // openしたstoreにextractStreamData()をそのまま追加
-async function persistStreamData(root = document) {
-  const posts = extractStreamData(root);
+// 初心者向けポイント: options でテスト用データや現在時刻を差し替えられる
+async function persistStreamData(root = document, options = {}) {
+  const {
+    // presetPosts: テスト時などに生の配列を直接保存したいときの差し替え口
+    presetPosts = null,
+    // getNow: Date.now() を差し替えられるようにして保存時刻を固定できる
+    getNow = () => Date.now(),
+  } = options;
+
+  // presetPosts が配列ならそれを優先し、通常時は DOM から抽出
+  const posts = Array.isArray(presetPosts)
+    ? presetPosts
+    : extractStreamData(root);
   const request = openStreamDB();
 
   return new Promise((resolve, reject) => {
@@ -247,9 +258,22 @@ async function persistStreamData(root = document) {
       const db = request.result; //TODO:event.target.result;にリファクタしろ
       const tx = db.transaction(STREAM_STORE_NAME, "readwrite");
       const store = tx.objectStore(STREAM_STORE_NAME);
-      const savedAt = Date.now();
+      const savedAt = getNow();
       for (const post of posts) {
-        store.put({ ...post, savedAt });
+        // 初心者向けメモ: IndexedDB にはプレーンなオブジェクトしか入らない
+        // のでスプレッドでコピーしながら必須プロパティを補強しておく
+        const record = {
+          index: post.index ?? 0,
+          streamId: post.streamId ?? "",
+          teacherName: post.teacherName ?? "",
+          postedAt: post.postedAt ?? { text: "", datetime: "" },
+          body: post.body ?? "",
+          attachments: Array.isArray(post.attachments)
+            ? post.attachments
+            : [],
+          savedAt,
+        };
+        store.put(record);
       }
       tx.oncomplete = () => {
         db.close();
@@ -685,6 +709,7 @@ if (document.readyState === "loading") {
 if (typeof window !== "undefined") {
   window.__gcxDebug = {
     extractStreamData,
+    persistStreamData,
     loadStreamPostsFromDb,
     syncStreamPosts,
     getFuse: () => fuse,
