@@ -647,10 +647,14 @@ function rerunLastQuery() {
 }
 
 async function init() {
-  // 初期化フロー: スタイル注入 → ライブラリ読み込み → UI 注入 → DOM 監視
+  // 初期化フロー: スタイル注入 → ライブラリ読み込み → 初期同期 → UI 注入 → DOM 監視
   ensureTopbar();
   await loadLocalLibs();
-  await syncStreamPosts();
+  try {
+    await syncStreamPosts();
+  } catch (error) {
+    console.warn("[GCX] Initial sync failed", error);
+  }
   await initFuse();
   observe();
   console.debug("[GCX] search input injection initialized");
@@ -661,6 +665,7 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
 
 // jsmodel = "N2jS6b"ストリームタブの投稿クラス
 
@@ -675,3 +680,13 @@ if (document.readyState === "loading") {
 // data-drive-id → Google ドライブ添付のファイル ID
 // aria-label / aria-labelledby → 代替テキストやタイトルの参照
 // role="link" / a[href] → 添付アイテムへのリンク本体
+
+// Debug helpers -- remove when not needed
+if (typeof window !== "undefined") {
+  window.__gcxDebug = {
+    extractStreamData,
+    loadStreamPostsFromDb,
+    syncStreamPosts,
+    getFuse: () => fuse,
+  };
+}

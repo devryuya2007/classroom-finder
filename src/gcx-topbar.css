@@ -1,4 +1,7 @@
 /* Quick search topbar styles injected via content script */
+
+@charset "UTF-8";
+
 .gcx-topbar {
   position: fixed;
   top: 9px;
