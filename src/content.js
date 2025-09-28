@@ -272,10 +272,16 @@ function normalizeWhitespace(value) {
     .trim();
 }
 //extractStreamDataからindex streamId + elementを返す（配列 > オブジェ。）
+// Classroom 側の DOM 変更に負けないよう、確実に投稿本体を拾うためのセレクタ
+// 1. data-stream-item-id を最優先で探す（公式属性）
+// 2. data-item-id + jsmodel でも拾えるように広げておく（UI 改修の保険）
 const STREAM_SELECTOR_PRIMARY =
-  'div[jscontroller="h38nBf"][data-stream-item-id], div[jscontroller="dk8rTb"][data-stream-item-id]';
+  '[data-stream-item-id], [data-item-id][jsmodel*="N2jS6b"]';
+// 3. それでも見つからない場合は記事（article / c-wiz）単位で拾ってフォールバック
 const STREAM_SELECTOR_FALLBACK =
-  'div[data-stream-item-id][jsmodel*="N2jS6b"], article[data-stream-item-id][jsmodel*="N2jS6b"]';
+  'c-wiz[jsmodel*="N2jS6b"], article[jsmodel*="N2jS6b"], li[jsmodel*="N2jS6b"]';
+// data-stream-item-id or data-item-id をまとめて探す共通セレクタ
+const STREAM_ID_SELECTOR = '[data-stream-item-id], [data-item-id]';
 
 let domFallbackLogged = false; // 初心者向けメモ: 同じ警告を何度も出さないためのフラグ
 let idFallbackLogged = false;
@@ -299,24 +305,39 @@ function collectStreamElements(root = document) {
     elements = fallback;
   }
 
-  const unique = new Map();
+  const seenIds = new Set();
+  const results = [];
+
   for (const element of elements) {
-    const streamId =
-      element.dataset?.streamItemId ||
-      element.getAttribute?.("data-stream-item-id") ||
-      element.getAttribute?.("data-item-id") ||
+    const idCarrier = element.matches(STREAM_ID_SELECTOR)
+      ? element
+      : element.querySelector(STREAM_ID_SELECTOR);
+    // 初心者向けメモ: idCarrier は「ID 属性を実際に持っている子要素」。
+    // 投稿カードそのものに data-stream-item-id が無い場合でも、
+    // 内側の子要素から拾ってユニーク ID を復元するために使うよ。
+    const rawId =
+      idCarrier?.dataset?.streamItemId ||
+      idCarrier?.getAttribute?.("data-stream-item-id") ||
+      idCarrier?.dataset?.itemId ||
+      idCarrier?.getAttribute?.("data-item-id") ||
       "";
-    if (!streamId) continue;
-    if (!unique.has(streamId)) {
-      unique.set(streamId, element);
+
+    if (rawId) {
+      if (seenIds.has(rawId)) {
+        continue;
+      }
+      seenIds.add(rawId);
     }
+
+    results.push({
+      // index: 1 から始まる連番。hashString の種にも使うので安定していると嬉しい。
+      index: results.length + 1,
+      streamId: rawId || null,
+      element,
+    });
   }
 
-  return Array.from(unique.entries()).map(([streamId, element], index) => ({
-    index: index + 1,
-    streamId,
-    element,
-  }));
+  return results;
 }
 
 // DOM から ID が取れない場合の保険。投稿の先生名/日時/本文からハッシュを作る。
@@ -328,11 +349,22 @@ function deriveStreamId({
   postedAt,
   bodyText,
 }) {
+  const descendantCarrier =
+    element?.matches?.(STREAM_ID_SELECTOR)
+      ? element
+      : element?.querySelector?.(STREAM_ID_SELECTOR);
+  // 初心者向けメモ: descendantCarrier は「子孫にある ID 持ちの要素」。
+  // directId を探すときに最後の切り札として使うイメージ。
   const directId =
     fallbackId ||
     element?.dataset?.streamItemId ||
     element?.getAttribute?.("data-stream-item-id") ||
+    element?.dataset?.itemId ||
     element?.getAttribute?.("data-item-id") ||
+    descendantCarrier?.dataset?.streamItemId ||
+    descendantCarrier?.getAttribute?.("data-stream-item-id") ||
+    descendantCarrier?.dataset?.itemId ||
+    descendantCarrier?.getAttribute?.("data-item-id") ||
     element?.id;
 
   if (directId) return directId;
@@ -394,12 +426,23 @@ async function persistStreamData(rootOrPosts = document) {
       const tx = db.transaction(STREAM_STORE_NAME, "readwrite");
       const store = tx.objectStore(STREAM_STORE_NAME);
       const savedAt = Date.now();
-      for (const post of posts) {
-        store.put({ ...post, savedAt });
+      const stored = [];
+      posts.forEach((post, index) => {
+        const streamId = ensureStableStreamId(post, index + 1);
+        if (!streamId) {
+          console.warn("[GCX] skip store: missing fallback streamId", post);
+          return;
+        }
+        const record = { ...post, streamId, savedAt };
+        store.put(record);
+        stored.push(record);
+      });
+      if (!stored.length) {
+        console.warn("[GCX] No posts persisted. Check selector / parser logic.");
       }
       tx.oncomplete = () => {
         db.close();
-        resolve({ stored: posts.length, posts });
+        resolve({ stored: stored.length, posts: stored });
       };
       tx.onerror = () => {
         reject(tx.error || new Error("IndexedDB transaction failed"));
@@ -440,9 +483,53 @@ async function loadStreamPostsFromDb() {
 }
 
 // ２つのオブジェが違うかどうか、違うならtrue
+function normalizeStreamId(value) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+// Classroom から拾った投稿が ID を持っていないとき、最小限の情報で
+// ハッシュを再計算して安定 ID を復元するよ。
+function ensureStableStreamId(post, fallbackIndex = 0) {
+  const existing = normalizeStreamId(post?.streamId);
+  if (existing) return existing;
+
+  const seedParts = [
+    normalizeWhitespace(post?.teacherName || ""),
+    normalizeWhitespace(post?.postedAt?.datetime || post?.postedAt?.text || ""),
+    normalizeWhitespace((post?.body || "").slice(0, 160)),
+    String(post?.index || fallbackIndex || 0),
+  ];
+
+  const seed = seedParts.join("|");
+  if (!seed.trim()) {
+    return ""; // 先生名も本文も空っぽなら諦める（ほぼ発生しないけど安全策）
+  }
+  return `auto-${hashString(seed)}`;
+}
+
 function findNewPosts(oldList, newList) {
-  const known = new Set(oldList.map((p) => p.streamId));
-  return newList.filter((post) => post.streamId && !known.has(post.streamId));
+  const known = new Set();
+
+  // 既存レコード分の ID を事前に集める。欠損していてもここで補完する。
+  oldList.forEach((post, index) => {
+    const id = ensureStableStreamId(post, index + 1);
+    if (!id) return;
+    known.add(id);
+  });
+
+  const fresh = [];
+
+  newList.forEach((post, index) => {
+    const id = ensureStableStreamId(post, index + 1);
+    if (!id) return;
+    if (known.has(id)) return;
+    known.add(id);
+    post.streamId = id; // 初心者向けメモ: 欠損 ID はここでその場で埋めておく。
+    fresh.push(post);
+  });
+
+  return fresh;
 }
 
 let syncInFlight = false;
