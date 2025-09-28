@@ -238,6 +238,7 @@ async function syncStreamPosts(root = document) {
       const updated = await loadStreamPostsFromDb();
       if (fuse) {
         fuse.setCollection(updated); //元データが増えたら最新の配列に差し替えるAPI
+        rerunLastQuery();
       }
     }
   } finally {
@@ -493,6 +494,8 @@ const options = {
 
 //fuseを作る。
 let fuse;
+// IndexedDB からの読み込みが終わるまでの間に入力されたキーワードを保持する
+let lastQuery = "";
 async function initFuse() {
   try {
     const posts = await loadStreamPostsFromDb();
@@ -506,6 +509,7 @@ async function initFuse() {
 //ユーザーからの入力をfuseのsearchにかけている。返り値は{item,score,refindex,...}
 function onSerchInput(event) {
   const query = event.target.value.trim();
+  lastQuery = query;
   if (!query || !fuse) {
     renderSuggestions([]);
     return;
@@ -557,10 +561,18 @@ function renderSuggestions(items) {
   container.classList.add("has-results");
 }
 
+// IndexedDB からの差分同期後に、最後に入力したクエリで再検索するためのヘルパー
+function rerunLastQuery() {
+  if (!lastQuery || !fuse) return;
+  const results = fuse.search(lastQuery);
+  renderSuggestions(results.map((item) => item.item));
+}
+
 async function init() {
   // 初期化フロー: スタイル注入 → ライブラリ読み込み → UI 注入 → DOM 監視
   ensureTopbar();
   await loadLocalLibs();
+  await syncStreamPosts();
   await initFuse();
   observe();
   console.debug("[GCX] search input injection initialized");
