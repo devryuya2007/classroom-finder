@@ -90,7 +90,7 @@ function ensurePageBridge() {
   document.documentElement.appendChild(script);
 }
 
-function requestStreamDomFromPage(timeoutMs = 2000) {
+function requestStreamHtmlFromPage(mode = "context", timeoutMs = 2000) {
   ensurePageBridge();
   return new Promise((resolve) => {
     const requestId = `gcx-${Date.now().toString(36)}-${Math.random()
@@ -106,27 +106,34 @@ function requestStreamDomFromPage(timeoutMs = 2000) {
 
     const timer = setTimeout(() => {
       cleanup();
-      resolve(null);
+      resolve([]);
     }, timeoutMs);
 
     function handler(event) {
       if (event.source !== window) return;
       const data = event.data;
       if (!data || typeof data !== "object") return;
-      if (data.type !== "GCX_STREAM_DOM") return;
+      if (data.type !== "GCX_STREAM_DATA") return;
       if (data.requestId !== requestId) return;
+      if (data.mode !== mode) return;
 
       clearTimeout(timer);
       cleanup();
-      resolve(Array.isArray(data.payload) ? data.payload : []);
+      const payload = data.payload;
+      const list =
+        payload && typeof payload === "object" && Array.isArray(payload.html)
+          ? payload.html
+          : [];
+      resolve(list);
     }
 
     window.addEventListener("message", handler);
 
     window.postMessage(
       {
-        type: "GCX_REQUEST_STREAM_DOM",
+        type: "GCX_REQUEST_STREAM_DATA",
         requestId,
+        mode,
       },
       "*"
     );
@@ -134,9 +141,12 @@ function requestStreamDomFromPage(timeoutMs = 2000) {
 }
 
 async function collectPostsFromPageContext(root = document) {
-  let htmlList = null;
+  let htmlList = [];
   try {
-    htmlList = await requestStreamDomFromPage();
+    htmlList = await requestStreamHtmlFromPage("context");
+    if (!htmlList.length) {
+      htmlList = await requestStreamHtmlFromPage("dom");
+    }
   } catch (error) {
     console.warn("[GCX] page bridge request failed", error);
   }
@@ -621,11 +631,7 @@ async function syncStreamPosts(root = document) {
     ]);
 
     if (!currentPosts.length) {
-      return; //投稿が描画されるまで保存を触らない。
-    }
-
-    if (!currentPosts.length) {
-      return;
+      return; // 投稿が描画されるまで保存を触らない。
     }
     const newPosts = findNewPosts(savedPosts, currentPosts);
     if (newPosts.length) {
@@ -640,9 +646,6 @@ async function syncStreamPosts(root = document) {
     syncInFlight = false;
   }
 }
-
-// 後方互換用の別名（古いコードが小文字関数名を呼ぶ場合のため）
-const ensurestyle = ensureStyles;
 
 // ===== ローカル配布ライブラリ ローダー =====
 const LIB_SPECS = {
