@@ -11,6 +11,7 @@ const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 const TOPBAR_ID = "gcx-topbar-overlay"; // DOM 上の ID（重複防止）
 const EXPANDED_CLASS = "is-expanded";
+const SUGGESTION_LIMIT = 20; // 初心者メモ: Fuse.js の検索結果は 20 件までに抑えておく
 const SVG_NS = "http://www.w3.org/2000/svg";
 const ICON_PATH_DATA = [
   "M172.625,102.4c-42.674,0-77.392,34.739-77.392,77.438c0,5.932,4.806,10.74,10.733,10.74c5.928,0,10.733-4.808,10.733-10.74c0-30.856,25.088-55.959,55.926-55.959c5.928,0,10.733-4.808,10.733-10.74C183.358,107.208,178.553,102.4,172.625,102.4z",
@@ -1006,16 +1007,28 @@ async function initFuse() {
   }
 }
 
+// 実際に Fuse.js へ問い合わせて「何件返すか」を決める係の小さな関数
+function collectTopMatches(query) {
+  // 入力が空文字だったり、まだ Fuse の準備が出来ていない場合は即終了
+  if (!query || !fuse) {
+    return [];
+  }
+
+  const safeQuery = query.trim();
+  if (!safeQuery) {
+    return [];
+  }
+
+  // limit オプションを付けると Fuse 側で件数を絞り込んでくれるよ
+  const results = fuse.search(safeQuery, { limit: SUGGESTION_LIMIT });
+  return results.map((entry) => entry.item);
+}
+
 //ユーザーからの入力をfuseのsearchにかけている。返り値は{item,score,refindex,...}
 function onSerchInput(event) {
   const query = event.target.value.trim();
   lastQuery = query;
-  if (!query || !fuse) {
-    renderSuggestions([]);
-    return;
-  }
-  const results = fuse.search(query);
-  renderSuggestions(results.map((item) => item.item)); //{item,score,refindex,...}
+  renderSuggestions(collectTopMatches(query));
 }
 //　ヒットしたfuseのうちitemをliに入れる。fragmentで一括で入れている。。
 function renderSuggestions(items) {
@@ -1063,9 +1076,10 @@ function renderSuggestions(items) {
 
 // IndexedDB からの差分同期後に、最後に入力したクエリで再検索するためのヘルパー
 function rerunLastQuery() {
-  if (!lastQuery || !fuse) return;
-  const results = fuse.search(lastQuery);
-  renderSuggestions(results.map((item) => item.item));
+  if (!lastQuery || !fuse) {
+    return;
+  }
+  renderSuggestions(collectTopMatches(lastQuery));
 }
 
 async function init() {
@@ -1094,6 +1108,7 @@ if (typeof window !== "undefined") {
     loadStreamPostsFromDb,
     syncStreamPosts,
     getFuse: () => fuse,
+    runSearchPreview: (query) => collectTopMatches(query),
   };
 }
 
