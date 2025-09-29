@@ -90,7 +90,7 @@ function ensurePageBridge() {
   document.documentElement.appendChild(script);
 }
 
-function requestStreamHtmlFromPage(mode = "context", timeoutMs = 2000) {
+function requestStreamDataFromPage(timeoutMs = 2000) {
   ensurePageBridge();
   return new Promise((resolve) => {
     const requestId = `gcx-${Date.now().toString(36)}-${Math.random()
@@ -106,34 +106,27 @@ function requestStreamHtmlFromPage(mode = "context", timeoutMs = 2000) {
 
     const timer = setTimeout(() => {
       cleanup();
-      resolve([]);
+      resolve(null);
     }, timeoutMs);
 
     function handler(event) {
       if (event.source !== window) return;
       const data = event.data;
       if (!data || typeof data !== "object") return;
-      if (data.type !== "GCX_STREAM_DATA") return;
+      if (data.type !== BRIDGE_RESPONSE_TYPE) return;
       if (data.requestId !== requestId) return;
-      if (data.mode !== mode) return;
 
       clearTimeout(timer);
       cleanup();
-      const payload = data.payload;
-      const list =
-        payload && typeof payload === "object" && Array.isArray(payload.html)
-          ? payload.html
-          : [];
-      resolve(list);
+      resolve(data.payload || null);
     }
 
     window.addEventListener("message", handler);
 
     window.postMessage(
       {
-        type: "GCX_REQUEST_STREAM_DATA",
+        type: BRIDGE_REQUEST_TYPE,
         requestId,
-        mode,
       },
       "*"
     );
@@ -141,27 +134,136 @@ function requestStreamHtmlFromPage(mode = "context", timeoutMs = 2000) {
 }
 
 async function collectPostsFromPageContext(root = document) {
-  let htmlList = [];
+  let bridgePayload = null;
   try {
-    htmlList = await requestStreamHtmlFromPage("context");
-    if (!htmlList.length) {
-      htmlList = await requestStreamHtmlFromPage("dom");
-    }
+    bridgePayload = await requestStreamDataFromPage();
   } catch (error) {
     console.warn("[GCX] page bridge request failed", error);
   }
 
-  if (Array.isArray(htmlList) && htmlList.length) {
-    const template = document.createElement("template");
-    const aggregated = [];
-    htmlList.forEach((html) => {
-      template.innerHTML = html;
-      aggregated.push(...extractStreamData(template.content));
-    });
-    return aggregated;
+  if (bridgePayload) {
+    try {
+      const posts = parseBridgePayload(bridgePayload);
+      if (posts.length) return posts;
+    } catch (error) {
+      console.warn("[GCX] bridge payload parsing failed", error);
+    }
   }
 
   return extractStreamData(root);
+}
+
+function parseBridgePayload(payload) {
+  const posts = [];
+  if (!payload || typeof payload !== "object") return posts;
+
+  const { streamData = [], courseWorkData = [] } = payload;
+  const flattened = [...flattenArray(streamData), ...flattenArray(courseWorkData)];
+
+  flattened.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+
+    const streamId = normalizeStreamId(
+      item.id || item.itemId || item.streamItemId || item.announcementId
+    );
+    const teacherName = normalizeWhitespace(
+      item.creatorDisplayName || item.authorName || item.ownerName || ""
+    );
+    const postedAtText = normalizeWhitespace(
+      item.creationTime || item.createDate || item.publishTime || item.updateTime || ""
+    );
+    const bodyText = normalizeWhitespace(
+      item.text || item.description || item.body || item.title || ""
+    );
+
+    if (!streamId && !teacherName && !bodyText) return;
+
+    posts.push({
+      index: posts.length + 1,
+      streamId:
+        streamId ||
+        ensureStableStreamId(
+          {
+            streamId,
+            teacherName,
+            postedAt: { text: postedAtText },
+            body: bodyText,
+          },
+          posts.length + 1
+        ),
+      teacherName,
+      postedAt: {
+        text: postedAtText,
+        datetime: postedAtText,
+      },
+      body: bodyText,
+      attachments: normalizeAttachments(item.materials || item.attachments || []),
+    });
+  });
+
+  return posts;
+}
+
+function flattenArray(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input.flatMap((value) => flattenArray(value));
+  }
+  if (typeof input === "object") {
+    return Object.values(input).flatMap((value) => flattenArray(value));
+  }
+  return [];
+}
+
+function normalizeAttachments(materials) {
+  if (!Array.isArray(materials)) return [];
+  return materials
+    .map((material) => {
+      if (!material || typeof material !== "object") return null;
+
+      if (material.driveFile && material.driveFile.driveFile) {
+        const file = material.driveFile.driveFile;
+        return {
+          type: "driveFile",
+          driveId: file.id || "",
+          href: file.alternateLink || "",
+          title: normalizeWhitespace(file.title || ""),
+        };
+      }
+
+      if (material.link) {
+        const link = material.link;
+        return {
+          type: "link",
+          driveId: "",
+          href: link.url || "",
+          title: normalizeWhitespace(link.title || link.url || ""),
+        };
+      }
+
+      if (material.form) {
+        const form = material.form;
+        return {
+          type: "form",
+          driveId: form.formId || "",
+          href: form.formUrl || "",
+          title: normalizeWhitespace(form.title || ""),
+        };
+      }
+
+      if (material.youtubeVideo) {
+        const video = material.youtubeVideo;
+        return {
+          type: "youtube",
+          driveId: video.id || "",
+          href: video.alternateLink || video.url || "",
+          title: normalizeWhitespace(video.title || ""),
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
 }
 
 //取得してオブジェクトにして返す。
