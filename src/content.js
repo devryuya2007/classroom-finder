@@ -5,6 +5,8 @@
 // ここから定数定義とスタイル注入ヘルパー
 const STYLE_ID = "gcx-sarch-style"; // 注入する <link> の id（重複防止）
 const STYLE_PATH = "src/gcx-topbar.css"; // 読み込むスタイルシートのパス
+const PAGE_BRIDGE_ID = "gcx-page-bridge";
+const PAGE_BRIDGE_PATH = "src/page-bridge.js";
 const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 const TOPBAR_ID = "gcx-topbar-overlay"; // DOM 上の ID（重複防止）
@@ -77,6 +79,79 @@ function ensureStyles() {
       console.warn(`[GCX] Failed to load stylesheet from ${href}`, error);
       style.remove();
     });
+}
+
+function ensurePageBridge() {
+  if (document.getElementById(PAGE_BRIDGE_ID)) return;
+  const script = document.createElement("script");
+  script.id = PAGE_BRIDGE_ID;
+  script.src = getExtensionURL(PAGE_BRIDGE_PATH);
+  script.async = false;
+  document.documentElement.appendChild(script);
+}
+
+function requestStreamDomFromPage(timeoutMs = 2000) {
+  ensurePageBridge();
+  return new Promise((resolve) => {
+    const requestId = `gcx-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+
+    let settled = false;
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("message", handler);
+    };
+
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, timeoutMs);
+
+    function handler(event) {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type !== "GCX_STREAM_DOM") return;
+      if (data.requestId !== requestId) return;
+
+      clearTimeout(timer);
+      cleanup();
+      resolve(Array.isArray(data.payload) ? data.payload : []);
+    }
+
+    window.addEventListener("message", handler);
+
+    window.postMessage(
+      {
+        type: "GCX_REQUEST_STREAM_DOM",
+        requestId,
+      },
+      "*"
+    );
+  });
+}
+
+async function collectPostsFromPageContext(root = document) {
+  let htmlList = null;
+  try {
+    htmlList = await requestStreamDomFromPage();
+  } catch (error) {
+    console.warn("[GCX] page bridge request failed", error);
+  }
+
+  if (Array.isArray(htmlList) && htmlList.length) {
+    const template = document.createElement("template");
+    const aggregated = [];
+    htmlList.forEach((html) => {
+      template.innerHTML = html;
+      aggregated.push(...extractStreamData(template.content));
+    });
+    return aggregated;
+  }
+
+  return extractStreamData(root);
 }
 
 //取得してオブジェクトにして返す。
@@ -542,7 +617,7 @@ async function syncStreamPosts(root = document) {
   try {
     const [savedPosts, currentPosts] = await Promise.all([
       loadStreamPostsFromDb(),
-      Promise.resolve(extractStreamData(root)),
+      collectPostsFromPageContext(root),
     ]);
 
     if (!currentPosts.length) {
