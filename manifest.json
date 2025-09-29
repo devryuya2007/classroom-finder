@@ -3,8 +3,11 @@
   "name": "Classroom-Finder",
   "version": "1.0.0",
   "description": "Google Classroom に高速横断検索を追加",
-  "permissions": ["storage", "scripting"],
-  "host_permissions": ["https://classroom.google.com/*"],
+  "permissions": ["storage", "scripting", "identity"],
+  "host_permissions": [
+    "https://classroom.google.com/*",
+    "https://www.googleapis.com/*"
+  ],
   "content_scripts": [
     {
       "matches": ["https://classroom.google.com/*"],
@@ -22,5 +25,12 @@
       ],
       "matches": ["https://classroom.google.com/*"]
     }
-  ]
+  ],
+  "oauth2": {
+    "client_id": "742269214393-hrn0eef4b603bh6ufqhq6pfc8kh4s15q.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/classroom.courses.readonly",
+      "https://www.googleapis.com/auth/classroom.announcements.readonly"
+    ]
+  }
 }

@@ -25,7 +25,7 @@ const ICON_PATH_DATA = [
 // role="heading" + aria-level="2" → 投稿ヘッダー見出し（氏名と時刻が含まれる）
 // time[datetime][data-timestamp] → 投稿日時（ISO 文字列と UNIX ミリ秒）
 // data-stream-post-body → 投稿本文テキストを含むコンテナ
-// data-material-parent-id → 添付資料一覧のルート（投稿 ID と紐付く）
+// data-material-parent-id → 添付資料一覧のル ート（投稿 ID と紐付く）
 // data-attachment-type → 添付アイテムの種類（driveFile, form など）
 // data-drive-id → Google ドライブ添付のファイル ID
 // aria-label / aria-labelledby → 代替テキストやタイトルの参照
@@ -44,6 +44,9 @@ const ICON_PATH_DATA = [
 //     * 担当者: div.z07MGc.Vu2fZd.jJIbcc.T30lh → 教員名
 //     * 最新通知: div.xo2x2e > span.Y5vSD / span.nforOe
 // - カード内ショートカット（課題・ドライブなど）: div.SZ0kZe 以下の div.ne2Ple-oshW8e-V67aGc
+
+const BRIDGE_REQUEST_TYPE = "GCX_REQUEST_STREAM_DATA";
+const BRIDGE_RESPONSE_TYPE = "GCX_STREAM_DATA";
 
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
@@ -159,7 +162,10 @@ function parseBridgePayload(payload) {
   if (!payload || typeof payload !== "object") return posts;
 
   const { streamData = [], courseWorkData = [] } = payload;
-  const flattened = [...flattenArray(streamData), ...flattenArray(courseWorkData)];
+  const flattened = [
+    ...flattenArray(streamData),
+    ...flattenArray(courseWorkData),
+  ];
 
   flattened.forEach((item) => {
     if (!item || typeof item !== "object") return;
@@ -171,7 +177,11 @@ function parseBridgePayload(payload) {
       item.creatorDisplayName || item.authorName || item.ownerName || ""
     );
     const postedAtText = normalizeWhitespace(
-      item.creationTime || item.createDate || item.publishTime || item.updateTime || ""
+      item.creationTime ||
+        item.createDate ||
+        item.publishTime ||
+        item.updateTime ||
+        ""
     );
     const bodyText = normalizeWhitespace(
       item.text || item.description || item.body || item.title || ""
@@ -198,7 +208,9 @@ function parseBridgePayload(payload) {
         datetime: postedAtText,
       },
       body: bodyText,
-      attachments: normalizeAttachments(item.materials || item.attachments || []),
+      attachments: normalizeAttachments(
+        item.materials || item.attachments || []
+      ),
     });
   });
 

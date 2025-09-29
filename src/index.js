@@ -1,0 +1,1 @@
+export default { async fetch(_req, _env) { return new Response('OK'); } };
