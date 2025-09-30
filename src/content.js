@@ -1,12 +1,10 @@
 // Google Classroom のトップバーへ「クイック検索」UIを挿入するスクリプト
-// - ネットワーク通信は行わず、DOM 監視で UI を差し込むだけ
+// - Google Classroom API からデータを取得して検索用インデックスを作成
 // - スタイルは外部 CSS を <link> で一度だけ注入（UI 本体は後段で生成）
 // - 検索アイコンはインライン SVG 要素で描画（CSS 変数で色変更可）
 // ここから定数定義とスタイル注入ヘルパー
 const STYLE_ID = "gcx-sarch-style"; // 注入する <link> の id（重複防止）
 const STYLE_PATH = "src/gcx-topbar.css"; // 読み込むスタイルシートのパス
-const PAGE_BRIDGE_ID = "gcx-page-bridge";
-const PAGE_BRIDGE_PATH = "src/page-bridge.js";
 const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 const TOPBAR_ID = "gcx-topbar-overlay"; // DOM 上の ID（重複防止）
@@ -45,8 +43,7 @@ const ICON_PATH_DATA = [
 //     * 最新通知: div.xo2x2e > span.Y5vSD / span.nforOe
 // - カード内ショートカット（課題・ドライブなど）: div.SZ0kZe 以下の div.ne2Ple-oshW8e-V67aGc
 
-const BRIDGE_REQUEST_TYPE = "GCX_REQUEST_STREAM_DATA";
-const BRIDGE_RESPONSE_TYPE = "GCX_STREAM_DATA";
+// 旧 DOM フォールバックは廃止
 
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
@@ -85,148 +82,117 @@ function ensureStyles() {
     });
 }
 
-function ensurePageBridge() {
-  if (document.getElementById(PAGE_BRIDGE_ID)) return;
-  const script = document.createElement("script");
-  script.id = PAGE_BRIDGE_ID;
-  script.src = getExtensionURL(PAGE_BRIDGE_PATH);
-  script.async = false;
-  document.documentElement.appendChild(script);
-}
-
-function requestStreamDataFromPage(timeoutMs = 2000) {
-  ensurePageBridge();
-  return new Promise((resolve) => {
-    const requestId = `gcx-${Date.now().toString(36)}-${Math.random()
-      .toString(36)
-      .slice(2)}`;
-
-    let settled = false;
-    const cleanup = () => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("message", handler);
-    };
-
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve(null);
-    }, timeoutMs);
-
-    function handler(event) {
-      if (event.source !== window) return;
-      const data = event.data;
-      if (!data || typeof data !== "object") return;
-      if (data.type !== BRIDGE_RESPONSE_TYPE) return;
-      if (data.requestId !== requestId) return;
-
-      clearTimeout(timer);
-      cleanup();
-      resolve(data.payload || null);
-    }
-
-    window.addEventListener("message", handler);
-
-    window.postMessage(
-      {
-        type: BRIDGE_REQUEST_TYPE,
-        requestId,
-      },
-      "*"
-    );
-  });
-}
-
-async function collectPostsFromPageContext(root = document) {
-  let bridgePayload = null;
-  try {
-    bridgePayload = await requestStreamDataFromPage();
-  } catch (error) {
-    console.warn("[GCX] page bridge request failed", error);
-  }
-
-  if (bridgePayload) {
+// ===== Google Classroom API helper =====
+async function bgFetch(request) {
+  return new Promise((resolve, reject) => {
     try {
-      const posts = parseBridgePayload(bridgePayload);
-      if (posts.length) return posts;
-    } catch (error) {
-      console.warn("[GCX] bridge payload parsing failed", error);
+      chrome.runtime.sendMessage(
+        { type: "GCX_GOOGLE_FETCH", request },
+        (res) => {
+          if (!res) return reject(new Error("No response from background"));
+          if (!res.ok)
+            return reject(new Error(res.error || `HTTP ${res.status}`));
+          resolve(res.data);
+        }
+      );
+    } catch (err) {
+      reject(err);
     }
-  }
-
-  return extractStreamData(root);
+  });
 }
 
-function parseBridgePayload(payload) {
-  const posts = [];
-  if (!payload || typeof payload !== "object") return posts;
-
-  const { streamData = [], courseWorkData = [] } = payload;
-  const flattened = [
-    ...flattenArray(streamData),
-    ...flattenArray(courseWorkData),
-  ];
-
-  flattened.forEach((item) => {
-    if (!item || typeof item !== "object") return;
-
-    const streamId = normalizeStreamId(
-      item.id || item.itemId || item.streamItemId || item.announcementId
-    );
-    const teacherName = normalizeWhitespace(
-      item.creatorDisplayName || item.authorName || item.ownerName || ""
-    );
-    const postedAtText = normalizeWhitespace(
-      item.creationTime ||
-        item.createDate ||
-        item.publishTime ||
-        item.updateTime ||
-        ""
-    );
-    const bodyText = normalizeWhitespace(
-      item.text || item.description || item.body || item.title || ""
-    );
-
-    if (!streamId && !teacherName && !bodyText) return;
-
-    posts.push({
-      index: posts.length + 1,
-      streamId:
-        streamId ||
-        ensureStableStreamId(
-          {
-            streamId,
-            teacherName,
-            postedAt: { text: postedAtText },
-            body: bodyText,
-          },
-          posts.length + 1
-        ),
-      teacherName,
-      postedAt: {
-        text: postedAtText,
-        datetime: postedAtText,
-      },
-      body: bodyText,
-      attachments: normalizeAttachments(
-        item.materials || item.attachments || []
-      ),
+async function listAllCourses() {
+  const courses = [];
+  let pageToken = undefined;
+  do {
+    const data = await bgFetch({
+      path: "/courses",
+      params: { courseStates: "ACTIVE", pageSize: 100, pageToken },
     });
-  });
+    if (data?.courses?.length) courses.push(...data.courses);
+    pageToken = data?.nextPageToken || undefined;
+  } while (pageToken);
+  return courses;
+}
 
+async function listAnnouncementsForCourse(courseId) {
+  const items = [];
+  let pageToken = undefined;
+  do {
+    const data = await bgFetch({
+      path: `/courses/${encodeURIComponent(courseId)}/announcements`,
+      params: { pageSize: 100, pageToken, orderBy: "updateTime desc" },
+    });
+    if (data?.announcements?.length) items.push(...data.announcements);
+    pageToken = data?.nextPageToken || undefined;
+  } while (pageToken);
+  return items;
+}
+
+function mapAnnouncementToPost(ann, course, index) {
+  const id = normalizeStreamId(ann.id || "");
+  const teacherName = normalizeWhitespace(course?.name || "");
+  const postedAtText = normalizeWhitespace(
+    ann.updateTime || ann.creationTime || ""
+  );
+  const bodyText = normalizeWhitespace(ann.text || "");
+
+  return {
+    index,
+    streamId:
+      id ||
+      ensureStableStreamId(
+        {
+          streamId: id,
+          teacherName,
+          postedAt: { text: postedAtText },
+          body: bodyText,
+        },
+        index
+      ),
+    teacherName,
+    postedAt: { text: postedAtText, datetime: postedAtText },
+    body: bodyText,
+    attachments: normalizeAttachments(ann.materials || []),
+  };
+}
+
+async function fetchAllAnnouncementsPosts() {
+  const courses = await listAllCourses();
+  const posts = [];
+  let counter = 0;
+  const concurrency = 5;
+  let i = 0;
+  async function worker() {
+    while (i < courses.length) {
+      const idx = i++;
+      const course = courses[idx];
+      try {
+        const anns = await listAnnouncementsForCourse(course.id);
+        for (const ann of anns) {
+          counter += 1;
+          posts.push(mapAnnouncementToPost(ann, course, counter));
+        }
+      } catch (err) {
+        console.warn("[GCX] announcements fetch failed", course?.id, err);
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, courses.length) }, worker)
+  );
   return posts;
 }
 
-function flattenArray(input) {
-  if (!input) return [];
-  if (Array.isArray(input)) {
-    return input.flatMap((value) => flattenArray(value));
-  }
-  if (typeof input === "object") {
-    return Object.values(input).flatMap((value) => flattenArray(value));
-  }
-  return [];
-}
+// Page bridge removed (API usage only)
+
+// requestStreamDataFromPage removed (API usage only)
+
+// collectPostsFromPageContext removed (API usage only)
+
+// parseBridgePayload removed (API usage only)
+
+// flattenArray removed (API usage only)
 
 function normalizeAttachments(materials) {
   if (!Array.isArray(materials)) return [];
@@ -279,79 +245,7 @@ function normalizeAttachments(materials) {
     .filter(Boolean);
 }
 
-//取得してオブジェクトにして返す。
-function extractStreamData(root = document) {
-  const entries = collectStreamElements(root);
-  return entries.map(({ index, element, streamId: presetId }) => {
-    const header =
-      element.querySelector('[role="heading"][aria-level="2"]') || element;
-
-    const headerTexts = collectJsnameTexts(header);
-    const headerFallbackText = normalizeWhitespace(header.textContent);
-
-    const teacherText = selectTeacherText(
-      headerTexts,
-      headerFallbackText,
-      header
-    );
-
-    const timeEl = header.querySelector("time[datetime], [data-timestamp]");
-    const timeFromAttr = normalizeWhitespace(timeEl?.textContent);
-    const timeFromJsname = selectTimeText(headerTexts, timeFromAttr, header);
-    const postedAt = {
-      text: timeFromJsname,
-      datetime:
-        timeEl?.getAttribute?.("datetime") ||
-        timeEl?.getAttribute?.("data-timestamp") ||
-        "",
-    };
-
-    const bodyText = selectBodyText(element, header);
-
-    const attachmentNodes = element.querySelectorAll(
-      '[data-material-parent-id] [data-attachment-type], [data-material-parent-id] [role="link"], [data-material-parent-id] a[href]'
-    );
-
-    const attachments = [...attachmentNodes].map((att) => {
-      const linkElement = att.matches('[role="link"], a[href]')
-        ? att
-        : att.querySelector('[role="link"], a[href]');
-      const type =
-        att.getAttribute("data-attachment-type") ||
-        linkElement?.getAttribute("data-attachment-type") ||
-        "";
-      const driveId =
-        att.getAttribute("data-drive-id") ||
-        linkElement?.getAttribute("data-drive-id") ||
-        "";
-      const href = linkElement?.getAttribute("href") || "";
-      const title = normalizeWhitespace(
-        linkElement?.getAttribute("aria-label") ||
-          linkElement?.textContent ||
-          ""
-      );
-      return { type, driveId, href, title };
-    });
-
-    const streamId = deriveStreamId({
-      element,
-      fallbackId: presetId,
-      index,
-      teacherName: teacherText,
-      postedAt,
-      bodyText,
-    });
-
-    return {
-      index,
-      streamId,
-      teacherName: teacherText,
-      postedAt,
-      body: bodyText,
-      attachments,
-    };
-  });
-}
+// 旧 DOM 解析ロジックは削除（API 取得に一本化）
 //jsnameを使ってDOMを取得
 function collectJsnameTexts(scope) {
   if (!scope) return [];
@@ -610,11 +504,8 @@ function openStreamDB() {
   };
   return request;
 }
-// openしたstoreにextractStreamData()をそのまま追加
-async function persistStreamData(rootOrPosts = document) {
-  const posts = Array.isArray(rootOrPosts)
-    ? rootOrPosts
-    : extractStreamData(rootOrPosts);
+// API から得た配列をそのまま保存
+async function persistStreamData(posts = []) {
   if (!posts.length) return { stored: 0, posts: [] };
   const request = openStreamDB();
 
@@ -735,19 +626,17 @@ function findNewPosts(oldList, newList) {
 
 let syncInFlight = false;
 
-//非同期でloadStreamPostsFromDbとextractStreamDataを比べる。
-async function syncStreamPosts(root = document) {
+// API 経由で最新を取り込み、差分だけ追加
+async function syncStreamPosts() {
   if (syncInFlight) return;
   syncInFlight = true;
   try {
     const [savedPosts, currentPosts] = await Promise.all([
       loadStreamPostsFromDb(),
-      collectPostsFromPageContext(root),
+      fetchAllAnnouncementsPosts(),
     ]);
 
-    if (!currentPosts.length) {
-      return; // 投稿が描画されるまで保存を触らない。
-    }
+    if (!currentPosts.length) return;
     const newPosts = findNewPosts(savedPosts, currentPosts);
     if (newPosts.length) {
       await persistStreamData(newPosts);
@@ -967,28 +856,14 @@ function ensureTopbar() {
 }
 //DOMを監視して変化があれば再挿入
 function observe() {
+  // DOM 監視は不要。トップバー状態の維持と API 同期のみ行う。
+  ensureTopbar();
   void syncStreamPosts().catch(console.error);
-  // DOM 変化を監視し、必要に応じて再注入（軽量）
-  const observer = new MutationObserver((mutations) => {
-    if (
-      mutations.some(
-        (m) => m.type === "childList" || m.type === "characterData"
-      )
-    ) {
-      ensureTopbar();
-      void syncStreamPosts().catch(console.error);
-    }
-  });
-  const target = document.body || document.documentElement;
-  if (target) {
-    observer.observe(target, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-  }
-  // 監視で取りこぼした場合のフォールバックとして定期チェック
-  setInterval(() => ensureTopbar(), 2000);
+  // 定期的にデータを同期（5 分ごと）
+  setInterval(() => {
+    ensureTopbar();
+    void syncStreamPosts().catch(console.error);
+  }, 5 * 60 * 1000);
 }
 
 const options = {
@@ -1116,24 +991,9 @@ if (document.readyState === "loading") {
 
 if (typeof window !== "undefined") {
   window.__gcxDebug = {
-    extractStreamData,
     loadStreamPostsFromDb,
     syncStreamPosts,
     getFuse: () => fuse,
     runSearchPreview: (query) => collectTopMatches(query),
   };
 }
-
-// jsmodel = "N2jS6b"ストリームタブの投稿クラス
-
-// Classroom DOM ラベル備忘録（安定属性のみ）
-// data-stream-item-id → ストリーム投稿ごとのユニーク ID
-// data-actor-name / data-entity-name → 投稿者（教師）の表示名
-// role="heading" + aria-level="2" → 投稿ヘッダー見出し（氏名と時刻が含まれる）
-// time[datetime][data-timestamp] → 投稿日時（ISO 文字列と UNIX ミリ秒）
-// data-stream-post-body → 投稿本文テキストを含むコンテナ
-// data-material-parent-id → 添付資料一覧のルート（投稿 ID と紐付く）
-// data-attachment-type → 添付アイテムの種類（driveFile, form など）
-// data-drive-id → Google ドライブ添付のファイル ID
-// aria-label / aria-labelledby → 代替テキストやタイトルの参照
-// role="link" / a[href] → 添付アイテムへのリンク本体

@@ -6,7 +6,8 @@
   "permissions": ["storage", "scripting", "identity"],
   "host_permissions": [
     "https://classroom.google.com/*",
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/*",
+    "https://classroom.googleapis.com/*"
   ],
   "content_scripts": [
     {
@@ -20,14 +21,17 @@
       "resources": [
         "src/gcx-topbar.css",
         "src/libs/icon.svg/検索用の虫眼鏡アイコン素材.svg",
-        "src/libs/fuse.esm.js",
-        "src/page-bridge.js"
+        "src/libs/fuse.esm.js"
       ],
       "matches": ["https://classroom.google.com/*"]
     }
   ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
   "oauth2": {
-    "client_id": "742269214393-hrn0eef4b603bh6ufqhq6pfc8kh4s15q.apps.googleusercontent.com",
+    "client_id": "742269214393-09b86048vhc6su0ii3ra90b8hlqrqqld.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/classroom.courses.readonly",
       "https://www.googleapis.com/auth/classroom.announcements.readonly"
