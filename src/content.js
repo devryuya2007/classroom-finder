@@ -17,6 +17,10 @@ const ICON_PATH_DATA = [
   "M499.516,439.154L386.275,326.13c-16.119,23.552-36.771,44.202-60.309,60.345l113.241,113.024c8.329,8.334,19.246,12.501,30.148,12.501c10.916,0,21.833-4.167,30.162-12.501C516.161,482.83,516.161,455.822,499.516,439.154z",
 ];
 
+// UI やストレージによる切替は廃止し、
+// コード内の定数で API モードを固定します。
+const API_MODE = true; // true: API から同期する / false: 同期しない
+
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
   const href = getExtensionURL(STYLE_PATH);
@@ -483,6 +487,10 @@ let syncInFlight = false;
 
 // API 経由で最新を取り込み、差分だけ追加
 async function syncStreamPosts() {
+  if (!API_MODE) {
+    console.info("[GCX] API mode=false (disabled)");
+    return;
+  }
   if (syncInFlight) return;
   syncInFlight = true;
   try {
@@ -515,6 +523,7 @@ const LIB_SPECS = {
 };
 
 // 拡張内リソースの絶対URLを解決
+
 function getExtensionURL(relativePath) {
   try {
     if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
@@ -695,7 +704,7 @@ function createTopbar() {
   field.appendChild(input);
   field.appendChild(suggestions);
   wrap.appendChild(field);
-  return wrap;
+  return wrap; // API トグル UI は廃止
 }
 //Topbarにidを付与してbodyに挿入
 function ensureTopbar() {
@@ -714,11 +723,21 @@ function ensureTopbar() {
 function observe() {
   // DOM 監視は不要。トップバー状態の維持と API 同期のみ行う。
   ensureTopbar();
-  void syncStreamPosts().catch(console.error);
+  void syncStreamPosts().catch((err) => {
+    console.warn(
+      "[GCX] Periodic fetch failed. API mode=false とみなします",
+      err
+    );
+  });
   // 定期的にデータを同期（5 分ごと）
   setInterval(() => {
     ensureTopbar();
-    void syncStreamPosts().catch(console.error);
+    void syncStreamPosts().catch((err) => {
+      console.warn(
+        "[GCX] Periodic fetch failed. API mode=false とみなします",
+        err
+      );
+    });
   }, 5 * 60 * 1000);
 }
 
@@ -740,6 +759,7 @@ const options = {
 let fuse;
 // IndexedDB からの読み込みが終わるまでの間に入力されたキーワードを保持する
 let lastQuery = "";
+// API モードのトグル UI / 切替ハンドラは削除
 // IndexedDB の投稿コレクションで Fuse を初期化
 async function initFuse() {
   try {
@@ -913,10 +933,17 @@ function rerunLastQuery() {
 async function init() {
   ensureTopbar();
   await loadLocalLibs();
-  try {
-    await syncStreamPosts();
-  } catch (error) {
-    console.warn("[GCX] Initial sync failed", error);
+  if (API_MODE) {
+    try {
+      await syncStreamPosts();
+    } catch (error) {
+      console.warn(
+        "[GCX] Initial fetch failed. API mode=false とみなします",
+        error
+      );
+    }
+  } else {
+    console.info("[GCX] API mode=false (disabled)");
   }
   await initFuse();
   observe();

@@ -158,6 +158,37 @@
   pointer-events: auto;
 }
 
+.gcx-topbar .match-highlight {
+  background: rgba(26, 115, 232, 0.2);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.gcx-topbar-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 14px;
+}
+
+.gcx-api-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.gcx-api-switch-input {
+  width: 34px;
+  height: 18px;
+  accent-color: #1a73e8;
+}
+
+.gcx-api-switch-label {
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 600px) {
   .gcx-topbar {
     top: 12px;
