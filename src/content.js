@@ -20,6 +20,8 @@ const ICON_PATH_DATA = [
 // UI やストレージによる切替は廃止し、
 // コード内の定数で API モードを固定します。
 const API_MODE = true; // true: API から同期する / false: 同期しない
+// 手動更新のみなら 0 にする。自動同期する場合はミリ秒で指定。
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5分（0 で無効）
 
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
@@ -704,7 +706,47 @@ function createTopbar() {
   field.appendChild(input);
   field.appendChild(suggestions);
   wrap.appendChild(field);
-  return wrap; // API トグル UI は廃止
+
+  // 入力行の右端（同一行）に手動更新ボタンを配置
+  const refreshBtn = document.createElement("button");
+  refreshBtn.type = "button";
+  refreshBtn.classList.add("gcx-refresh-btn");
+  refreshBtn.textContent = "更新";
+  refreshBtn.title = "新規投稿を同期";
+  [
+    "click",
+    "mousedown",
+    "mouseup",
+    "pointerdown",
+    "pointerup",
+    "touchstart",
+    "touchend",
+    "keydown",
+    "keyup",
+  ].forEach((t) => refreshBtn.addEventListener(t, stop, { passive: true }));
+
+  refreshBtn.addEventListener("click", async () => {
+    try {
+      const prev = refreshBtn.textContent;
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "更新中…";
+      await syncStreamPosts();
+      refreshBtn.textContent = prev;
+    } catch (err) {
+      console.warn("[GCX] manual sync failed", err);
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  });
+
+  // grid 1行目の3列目として配置し、suggestions は2行目に展開させる
+  if (suggestions.parentNode === field) {
+    field.removeChild(suggestions);
+  }
+  field.appendChild(refreshBtn);
+  field.appendChild(suggestions);
+
+  return wrap;
 }
 //Topbarにidを付与してbodyに挿入
 function ensureTopbar() {
@@ -730,15 +772,17 @@ function observe() {
     );
   });
   // 定期的にデータを同期（5 分ごと）
-  setInterval(() => {
-    ensureTopbar();
-    void syncStreamPosts().catch((err) => {
-      console.warn(
-        "[GCX] Periodic fetch failed. API mode=false とみなします",
-        err
-      );
-    });
-  }, 5 * 60 * 1000);
+  if (POLL_INTERVAL_MS > 0) {
+    setInterval(() => {
+      ensureTopbar();
+      void syncStreamPosts().catch((err) => {
+        console.warn(
+          "[GCX] Periodic fetch failed. API mode=false とみなします",
+          err
+        );
+      });
+    }, POLL_INTERVAL_MS);
+  }
 }
 
 const options = {
