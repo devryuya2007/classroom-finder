@@ -685,9 +685,11 @@ async function loadLocalLibs() {
 
 // フォーカス制御専用のクラス（オブジェクト指向で管理）
 class TopbarFocusController {
-  // wrapElement: .gcx-topbar の要素をそのまま受け取る
-  constructor(wrapElement) {
+  // wrapElement: .gcx-topbar の要素 / inputElement: 検索ボックス / suggestionsElement: 候補コンテナ
+  constructor(wrapElement, inputElement, suggestionsElement) {
     this.wrap = wrapElement;
+    this.input = inputElement;
+    this.suggestions = suggestionsElement;
   }
 
   // 入力欄などがフォーカスを得た瞬間に展開クラスを追加
@@ -695,15 +697,11 @@ class TopbarFocusController {
     this.wrap.classList.add(EXPANDED_CLASS);
   }
 
-  close() {
+  close(options = {}) {
     this.wrap.classList.remove(EXPANDED_CLASS);
-    const container = this.wrap.querySelector(".gcx-suggestions");
-    if (container) {
-      container.classList.remove("has-results");
-      const list = container.querySelector(".suggestions-ul");
-      if (list) {
-        list.replaceChildren();
-      }
+    clearSuggestions(this.suggestions);
+    if (options.blur && this.input === document.activeElement) {
+      this.input.blur();
     }
   }
 
@@ -776,6 +774,15 @@ function ensureSuggestionsStructure(container) {
   return list;
 }
 
+function clearSuggestions(container) {
+  if (!container) return;
+  container.classList.remove("has-results");
+  const list = container.querySelector(".suggestions-ul");
+  if (list) {
+    list.replaceChildren();
+  }
+}
+
 // ===== トップバー UI（固定オーバーレイ） =====
 function createTopbar() {
   // 検索コンテナを生成（ロールとラベルは ARIA を付与）
@@ -817,7 +824,7 @@ function createTopbar() {
   suggestions.setAttribute("aria-live", "polite");
   ensureSuggestionsStructure(suggestions);
 
-  const focusController = new TopbarFocusController(wrap);
+  const focusController = new TopbarFocusController(wrap, input, suggestions);
   input.addEventListener("focus", () => {
     focusController.open();
 
@@ -837,10 +844,7 @@ function createTopbar() {
 
   const handleOutsidePointerDown = (event) => {
     if (!wrap.contains(event.target)) {
-      focusController.close();
-      if (document.activeElement === input) {
-        input.blur();
-      }
+      focusController.close({ blur: true });
     }
   };
   document.addEventListener("pointerdown", handleOutsidePointerDown, true); // キャプチャリングフェーズ
@@ -1165,6 +1169,11 @@ function renderSuggestions(results) {
   if (!list) return;
 
   list.replaceChildren();
+
+  const wrap = list.closest(".suggestions-wrap");
+  if (wrap) {
+    wrap.scrollTop = 0;
+  }
 
   if (!results.length) {
     container.classList.remove("has-results"); //非表示や余白調整
