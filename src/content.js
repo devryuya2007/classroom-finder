@@ -257,6 +257,10 @@ function normalizeWhitespace(value) {
     .trim();
 }
 
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function formatPostedAtForJapan(rawValue) {
   const value = normalizeWhitespace(rawValue || "");
   if (!value) {
@@ -582,20 +586,20 @@ function findNewPosts(oldList, newList) {
 }
 
 function findRemovedPostIds(oldList, newList) {
-  if (!Array.isArray(oldList) || !oldList.length) {
+  const previous = toArray(oldList);
+  if (!previous.length) {
     return [];
   }
 
   const currentIds = new Set();
-  const latest = Array.isArray(newList) ? newList : [];
-  latest.forEach((post, index) => {
+  toArray(newList).forEach((post, index) => {
     const id = ensureStableStreamId(post, index + 1);
     if (!id) return;
     currentIds.add(id);
   });
 
   const removed = [];
-  oldList.forEach((post, index) => {
+  previous.forEach((post, index) => {
     const id = ensureStableStreamId(post, index + 1);
     if (!id) return;
     if (currentIds.has(id)) return;
@@ -606,12 +610,8 @@ function findRemovedPostIds(oldList, newList) {
 }
 
 async function removeStreamPostsByIds(ids = []) {
-  if (!Array.isArray(ids) || !ids.length) {
-    return 0;
-  }
-
   const normalizedIds = Array.from(
-    new Set(ids.map((id) => normalizeStreamId(id)).filter(Boolean))
+    new Set(toArray(ids).map((id) => normalizeStreamId(id)).filter(Boolean))
   );
   if (!normalizedIds.length) {
     return 0;
@@ -667,8 +667,8 @@ async function syncStreamPosts() {
       fetchAllAnnouncementsPosts(),
     ]);
 
-    const existingPosts = Array.isArray(savedPosts) ? savedPosts : [];
-    const currentPosts = Array.isArray(currentPostsRaw) ? currentPostsRaw : [];
+    const existingPosts = toArray(savedPosts);
+    const currentPosts = toArray(currentPostsRaw);
 
     const removedIds = findRemovedPostIds(existingPosts, currentPosts);
     const newPosts = findNewPosts(existingPosts, currentPosts);
@@ -1360,6 +1360,86 @@ async function handleSuggestionActivation(item) {
 }
 
 //　ヒットしたfuseのうちitemをliに入れる。fragmentで一括で入れている。。
+function createSuggestionItem(entry) {
+  const item = entry?.item || {};
+  const matches = entry?.matches || [];
+  const attachmentLabels = deriveAttachmentLabels(item.attachments);
+  const li = document.createElement("li");
+  li.classList.add("suggestion-item");
+  li.tabIndex = 0; // 初心者向けメモ: tabIndex を付けるとフォーカス移動できる
+  li.setAttribute("role", "button");
+  li.dataset.streamId = item.streamId || "";
+  li.dataset.courseId = item.courseId || "";
+  li.dataset.alternateLink = item.alternateLink || "";
+  const ariaLabelParts = [
+    item.teacherName || "",
+    item.courseName && item.courseName !== item.teacherName
+      ? item.courseName
+      : "",
+    item.postedAt?.text || "",
+  ].filter(Boolean);
+  if (attachmentLabels.length) {
+    ariaLabelParts.push(attachmentLabels.join("/"));
+  }
+  if (ariaLabelParts.length) {
+    li.setAttribute("aria-label", ariaLabelParts.join(" "));
+  }
+
+  const header = document.createElement("div");
+  header.classList.add("suggestion-header");
+
+  const headerMain = document.createElement("div");
+  headerMain.classList.add("suggestion-header-main");
+
+  const teacher = document.createElement("span");
+  teacher.classList.add("suggestion-teacher");
+  renderHighlightedText(teacher, item.teacherName || "(不明)", matches, "teacherName");
+  headerMain.appendChild(teacher);
+
+  if (attachmentLabels.length) {
+    const badgeGroup = document.createElement("span");
+    badgeGroup.classList.add("suggestion-attachments");
+    attachmentLabels.forEach((label) => {
+      const badge = document.createElement("span");
+      badge.classList.add("attachment-badge");
+      badge.textContent = label;
+      badgeGroup.appendChild(badge);
+    });
+    headerMain.appendChild(badgeGroup);
+  }
+
+  const time = document.createElement("time");
+  time.classList.add("suggestion-time");
+  time.dateTime = item.postedAt?.datetime || "";
+  renderHighlightedText(time, item.postedAt?.text || "", matches, "postedAt.text");
+
+  header.append(headerMain, time);
+
+  const body = document.createElement("div");
+  body.classList.add("suggestion-body");
+  renderHighlightedText(body, item.body || "", matches, "body");
+
+  li.append(header, body);
+
+  const activate = () => {
+    void handleSuggestionActivation(item);
+  };
+
+  li.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    activate();
+  });
+  li.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+      event.preventDefault();
+      activate();
+    }
+  });
+
+  return li;
+}
+
 function renderSuggestions(results) {
   const container = document.querySelector(".gcx-suggestions");
   if (!container) return;
@@ -1373,102 +1453,18 @@ function renderSuggestions(results) {
     wrap.scrollTop = 0;
   }
 
-  if (!results.length) {
+  const entries = toArray(results);
+  if (!entries.length) {
     container.classList.remove("has-results"); //非表示や余白調整
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  for (const entry of results) {
-    const item = entry?.item || {};
-    const matches = entry?.matches || [];
-    const attachmentLabels = deriveAttachmentLabels(item.attachments);
-    const li = document.createElement("li");
-    li.classList.add("suggestion-item");
-    li.tabIndex = 0; // 初心者向けメモ: tabIndex を付けるとフォーカス移動できる
-    li.setAttribute("role", "button");
-    li.dataset.streamId = item.streamId || "";
-    li.dataset.courseId = item.courseId || "";
-    li.dataset.alternateLink = item.alternateLink || "";
-    const ariaLabelParts = [
-      item.teacherName || "",
-      item.courseName && item.courseName !== item.teacherName
-        ? item.courseName
-        : "",
-      item.postedAt?.text || "",
-    ].filter(Boolean);
-    if (attachmentLabels.length) {
-      ariaLabelParts.push(attachmentLabels.join("/"));
+  for (const entry of entries) {
+    const li = createSuggestionItem(entry);
+    if (li) {
+      fragment.appendChild(li);
     }
-    if (ariaLabelParts.length) {
-      li.setAttribute("aria-label", ariaLabelParts.join(" "));
-    }
-
-    const header = document.createElement("div");
-    header.classList.add("suggestion-header");
-
-    const headerMain = document.createElement("div");
-    headerMain.classList.add("suggestion-header-main");
-
-    const teacher = document.createElement("span");
-    teacher.classList.add("suggestion-teacher");
-    renderHighlightedText(
-      teacher,
-      item.teacherName || "(不明)",
-      matches,
-      "teacherName"
-    );
-    headerMain.appendChild(teacher);
-
-    if (attachmentLabels.length) {
-      const badgeGroup = document.createElement("span");
-      badgeGroup.classList.add("suggestion-attachments");
-      attachmentLabels.forEach((label) => {
-        const badge = document.createElement("span");
-        badge.classList.add("attachment-badge");
-        badge.textContent = label;
-        badgeGroup.appendChild(badge);
-      });
-      headerMain.appendChild(badgeGroup);
-    }
-
-    const time = document.createElement("time");
-    time.classList.add("suggestion-time");
-    time.dateTime = item.postedAt?.datetime || "";
-    renderHighlightedText(
-      time,
-      item.postedAt?.text || "",
-      matches,
-      "postedAt.text"
-    );
-
-    header.append(headerMain, time);
-
-    const body = document.createElement("div");
-    body.classList.add("suggestion-body");
-    renderHighlightedText(body, item.body || "", matches, "body");
-
-    li.append(header, body);
-    const activate = () => {
-      void handleSuggestionActivation(item);
-    };
-
-    li.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      activate();
-    });
-    li.addEventListener("keydown", (event) => {
-      if (
-        event.key === "Enter" ||
-        event.key === " " ||
-        event.key === "Spacebar"
-      ) {
-        event.preventDefault();
-        activate();
-      }
-    });
-    fragment.appendChild(li);
   }
 
   list.appendChild(fragment);
