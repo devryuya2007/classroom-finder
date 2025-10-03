@@ -209,6 +209,8 @@ function normalizeAttachments(materials) {
           driveId: file.id || "",
           href: file.alternateLink || "",
           title: normalizeWhitespace(file.title || ""),
+          mimeType: normalizeWhitespace(file.mimeType || ""),
+          iconUrl: normalizeWhitespace(file.iconUrl || ""),
         };
       }
 
@@ -1025,6 +1027,7 @@ function extractMatchRanges(matches, key, textLength) {
 
 // 抽出した範囲に <span> を差し込んでハイライト
 function renderHighlightedText(element, value, matches, key) {
+
   const text = value == null ? "" : String(value);
   element.textContent = "";
   if (!text) {
@@ -1056,6 +1059,109 @@ function renderHighlightedText(element, value, matches, key) {
 
   element.appendChild(fragment);
 }
+
+const IMAGE_EXT_PATTERN = /\.(?:png|jpe?g|gif|bmp|webp|svg|heic|heif|tiff?)$/i;
+const DOC_EXT_PATTERN = /\.(?:docx?|gdoc)$/i;
+const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
+const GOOGLE_DOC_URL_PATTERN = /docs\.google\.com\/document/i;
+
+function deriveDriveFileLabel(attachment) {
+  const mime = normalizeWhitespace(attachment?.mimeType || "").toLowerCase();
+  if (mime === GOOGLE_DOC_MIME) {
+    return "Document";
+  }
+  if (mime.startsWith("image/")) {
+    return "Image";
+  }
+
+  const title = normalizeWhitespace(attachment?.title || "");
+  const href = normalizeWhitespace(attachment?.href || "");
+  const icon = normalizeWhitespace(attachment?.iconUrl || "");
+  const lowerTitle = title.toLowerCase();
+  const lowerHref = href.toLowerCase();
+  const lowerIcon = icon.toLowerCase();
+
+  if (
+    GOOGLE_DOC_URL_PATTERN.test(href) ||
+    GOOGLE_DOC_URL_PATTERN.test(title) ||
+    lowerIcon.includes("document") ||
+    DOC_EXT_PATTERN.test(title) ||
+    DOC_EXT_PATTERN.test(href)
+  ) {
+    return "Document";
+  }
+
+  if (IMAGE_EXT_PATTERN.test(title) || IMAGE_EXT_PATTERN.test(href)) {
+    return "Image";
+  }
+
+  if (
+    lowerTitle.endsWith(".pdf") ||
+    lowerHref.endsWith(".pdf") ||
+    lowerHref.includes(".pdf")
+  ) {
+    return "PDF";
+  }
+
+  return "File";
+}
+
+function deriveSingleAttachmentLabel(attachment) {
+  if (!attachment || typeof attachment !== "object") {
+    return "";
+  }
+
+  switch (attachment.type) {
+    case "driveFile":
+      return deriveDriveFileLabel(attachment);
+    case "form":
+      return "Form";
+    case "youtube":
+      return "YouTube";
+    case "link": {
+      const href = normalizeWhitespace(attachment.href || "");
+      const title = normalizeWhitespace(attachment.title || "");
+      const lowerHref = href.toLowerCase();
+      const lowerTitle = title.toLowerCase();
+
+      if (
+        GOOGLE_DOC_URL_PATTERN.test(href) ||
+        GOOGLE_DOC_URL_PATTERN.test(title) ||
+        DOC_EXT_PATTERN.test(title) ||
+        DOC_EXT_PATTERN.test(href)
+      ) {
+        return "Document";
+      }
+
+      if (IMAGE_EXT_PATTERN.test(title) || IMAGE_EXT_PATTERN.test(href)) {
+        return "Image";
+      }
+
+      if (
+        lowerHref.endsWith(".pdf") ||
+        lowerHref.includes(".pdf") ||
+        lowerTitle.endsWith(".pdf")
+      ) {
+        return "PDF";
+      }
+
+      return "Link";
+    }
+    default:
+      return "File";
+  }
+}
+
+function deriveAttachmentLabels(attachments) {
+  if (!Array.isArray(attachments) || !attachments.length) {
+    return [];
+  }
+
+  return attachments
+    .map((attachment) => deriveSingleAttachmentLabel(attachment))
+    .filter((label) => Boolean(label));
+}
+
 
 function getCurrentCourseId() {
   const pathname = window.location?.pathname || "";
@@ -1184,6 +1290,7 @@ function renderSuggestions(results) {
   for (const entry of results) {
     const item = entry?.item || {};
     const matches = entry?.matches || [];
+    const attachmentLabels = deriveAttachmentLabels(item.attachments);
     const li = document.createElement("li");
     li.classList.add("suggestion-item");
     li.tabIndex = 0; // 初心者向けメモ: tabIndex を付けるとフォーカス移動できる
@@ -1198,12 +1305,18 @@ function renderSuggestions(results) {
         : "",
       item.postedAt?.text || "",
     ].filter(Boolean);
+    if (attachmentLabels.length) {
+      ariaLabelParts.push(attachmentLabels.join("/"));
+    }
     if (ariaLabelParts.length) {
       li.setAttribute("aria-label", ariaLabelParts.join(" "));
     }
 
     const header = document.createElement("div");
     header.classList.add("suggestion-header");
+
+    const headerMain = document.createElement("div");
+    headerMain.classList.add("suggestion-header-main");
 
     const teacher = document.createElement("span");
     teacher.classList.add("suggestion-teacher");
@@ -1213,6 +1326,19 @@ function renderSuggestions(results) {
       matches,
       "teacherName"
     );
+    headerMain.appendChild(teacher);
+
+    if (attachmentLabels.length) {
+      const badgeGroup = document.createElement("span");
+      badgeGroup.classList.add("suggestion-attachments");
+      attachmentLabels.forEach((label) => {
+        const badge = document.createElement("span");
+        badge.classList.add("attachment-badge");
+        badge.textContent = label;
+        badgeGroup.appendChild(badge);
+      });
+      headerMain.appendChild(badgeGroup);
+    }
 
     const time = document.createElement("time");
     time.classList.add("suggestion-time");
@@ -1223,7 +1349,8 @@ function renderSuggestions(results) {
       matches,
       "postedAt.text"
     );
-    header.append(teacher, time);
+
+    header.append(headerMain, time);
 
     const body = document.createElement("div");
     body.classList.add("suggestion-body");
@@ -1233,6 +1360,7 @@ function renderSuggestions(results) {
     const activate = () => {
       void handleSuggestionActivation(item);
     };
+
     li.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
