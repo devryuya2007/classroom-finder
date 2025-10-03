@@ -5,7 +5,7 @@
 .gcx-topbar {
   position: fixed;
   top: 9px;
-  left: 69%;
+  left: 68%;
   transform: translateX(-50%);
   --gcx-side-col: 32px; /* 1列目と3列目の幅を揃える */
   display: flex;
@@ -18,7 +18,7 @@
   border: 1px solid rgba(95, 99, 104, 0.28);
   border-radius: 18px;
   z-index: 1000;
-  transition: border-color 0.2s ease, border 0.2s ease, transform 0.2s ease,
+  transition: border-color 0.2s ease, border 0.2s ease,
     box-shadow 0.2s ease;
 }
 

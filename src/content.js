@@ -581,6 +581,76 @@ function findNewPosts(oldList, newList) {
   return fresh;
 }
 
+function findRemovedPostIds(oldList, newList) {
+  if (!Array.isArray(oldList) || !oldList.length) {
+    return [];
+  }
+
+  const currentIds = new Set();
+  const latest = Array.isArray(newList) ? newList : [];
+  latest.forEach((post, index) => {
+    const id = ensureStableStreamId(post, index + 1);
+    if (!id) return;
+    currentIds.add(id);
+  });
+
+  const removed = [];
+  oldList.forEach((post, index) => {
+    const id = ensureStableStreamId(post, index + 1);
+    if (!id) return;
+    if (currentIds.has(id)) return;
+    removed.push(id);
+  });
+
+  return removed;
+}
+
+async function removeStreamPostsByIds(ids = []) {
+  if (!Array.isArray(ids) || !ids.length) {
+    return 0;
+  }
+
+  const normalizedIds = Array.from(
+    new Set(ids.map((id) => normalizeStreamId(id)).filter(Boolean))
+  );
+  if (!normalizedIds.length) {
+    return 0;
+  }
+
+  const request = openStreamDB();
+  return new Promise((resolve, reject) => {
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(STREAM_STORE_NAME, "readwrite");
+      const store = tx.objectStore(STREAM_STORE_NAME);
+
+      normalizedIds.forEach((id) => {
+        try {
+          store.delete(id);
+        } catch (err) {
+          console.warn("[GCX] delete failed", { id, err });
+        }
+      });
+
+      tx.oncomplete = () => {
+        db.close();
+        resolve(normalizedIds.length);
+      };
+      tx.onerror = () => {
+        const error =
+          tx.error || new Error("IndexedDB delete transaction failed");
+        db.close();
+        reject(error);
+      };
+      tx.onabort = () => {
+        db.close();
+        reject(new Error("IndexedDB delete transaction aborted"));
+      };
+    };
+  });
+}
+
 let syncInFlight = false;
 
 // API 経由で最新を取り込み、差分だけ追加
@@ -592,18 +662,40 @@ async function syncStreamPosts() {
   if (syncInFlight) return;
   syncInFlight = true;
   try {
-    const [savedPosts, currentPosts] = await Promise.all([
+    const [savedPosts, currentPostsRaw] = await Promise.all([
       loadStreamPostsFromDb(),
       fetchAllAnnouncementsPosts(),
     ]);
 
-    if (!currentPosts.length) return;
-    const newPosts = findNewPosts(savedPosts, currentPosts);
+    const existingPosts = Array.isArray(savedPosts) ? savedPosts : [];
+    const currentPosts = Array.isArray(currentPostsRaw) ? currentPostsRaw : [];
+
+    const removedIds = findRemovedPostIds(existingPosts, currentPosts);
+    const newPosts = findNewPosts(existingPosts, currentPosts);
+    let dataChanged = false;
+
+    if (removedIds.length) {
+      try {
+        const removedCount = await removeStreamPostsByIds(removedIds);
+        if (removedCount > 0) {
+          dataChanged = true;
+        }
+      } catch (err) {
+        console.warn("[GCX] remove stream posts failed", err);
+      }
+    }
+
     if (newPosts.length) {
-      await persistStreamData(newPosts);
+      const result = await persistStreamData(newPosts);
+      if (result?.stored) {
+        dataChanged = true;
+      }
+    }
+
+    if (dataChanged) {
       const updated = await loadStreamPostsFromDb();
       if (fuse) {
-        fuse.setCollection(updated); //元データが増えたら最新の配列に差し替えるAPI
+        fuse.setCollection(updated); //最新の配列に差し替える
         rerunLastQuery();
       }
     }
