@@ -9,6 +9,9 @@ const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
 const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
 const TOPBAR_ID = "gcx-topbar-overlay"; // DOM 上の ID（重複防止）
 const EXPANDED_CLASS = "is-expanded";
+const REFRESH_BUTTON_SELECTOR = ".gcx-refresh-btn";
+const REFRESH_ERROR_CLASS = "is-error";
+const REFRESH_ERROR_DURATION_MS = 1000;
 const SUGGESTION_LIMIT = 20; // 初心者メモ: Fuse.js の検索結果は 20 件までに抑えておく
 const SVG_NS = "http://www.w3.org/2000/svg";
 const ICON_PATH_DATA = [
@@ -20,6 +23,12 @@ const ICON_PATH_DATA = [
 // リロードアイコンのパスデータ（512x512 ビューボックス）
 const RELOAD_ICON_PATH_DATA =
   "M446.025,92.206c-40.762-42.394-97.487-69.642-160.383-72.182c-15.791-0.638-29.114,11.648-29.752,27.433c-0.638,15.791,11.648,29.114,27.426,29.76c47.715,1.943,90.45,22.481,121.479,54.681c30.987,32.235,49.956,75.765,49.971,124.011c-0.015,49.481-19.977,94.011-52.383,126.474c-32.462,32.413-76.999,52.368-126.472,52.382c-49.474-0.015-94.025-19.97-126.474-52.382c-32.405-32.463-52.368-76.992-52.382-126.474c0-3.483,0.106-6.938,0.302-10.364l34.091,16.827c3.702,1.824,8.002,1.852,11.35,0.086c3.362-1.788,5.349-5.137,5.264-8.896l-3.362-149.834c-0.114-4.285-2.88-8.357-7.094-10.464c-4.242-2.071-9.166-1.809-12.613,0.738L4.008,182.45c-3.05,2.221-4.498,5.831-3.86,9.577c0.61,3.759,3.249,7.143,6.966,8.974l35.722,17.629c-1.937,12.166-3.018,24.602-3.018,37.279c-0.014,65.102,26.475,124.31,69.153,166.944C151.607,465.525,210.8,492.013,275.91,492c65.095,0.014,124.302-26.475,166.937-69.146c42.678-42.635,69.167-101.842,69.154-166.944C512.014,192.446,486.844,134.565,446.025,92.206z";
+const ERROR_ICON_PATHS = [
+  "M2.20164 18.4695L10.1643 4.00506C10.9021 2.66498 13.0979 2.66498 13.8357 4.00506L21.7984 18.4695C22.4443 19.6428 21.4598 21 19.9627 21H4.0373C2.54022 21 1.55571 19.6428 2.20164 18.4695Z",
+  "M12 9V13",
+  "M12 17.0195V17",
+];
+const ERROR_ICON_COLOR = "#EA4335";
 
 const JAPAN_TIME_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
   timeZone: "Asia/Tokyo",
@@ -33,7 +42,7 @@ const JAPAN_TIME_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
 
 // UI やストレージによる切替は廃止し、
 // コード内の定数で API モードを固定します。
-const API_MODE = true; // true: API から同期する / false: 同期しない
+const API_MODE = false; // true: API から同期する / false: 同期しない
 // 手動更新のみなら 0 にする。自動同期する場合はミリ秒で指定。
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5分（0 で無効）
 
@@ -259,6 +268,23 @@ function normalizeWhitespace(value) {
 
 function toArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function getRefreshButton() {
+  return document.querySelector(REFRESH_BUTTON_SELECTOR);
+}
+
+function flashRefreshError() {
+  const button = getRefreshButton();
+  if (!button) return;
+  button.classList.add(REFRESH_ERROR_CLASS);
+  if (refreshErrorTimerId) {
+    clearTimeout(refreshErrorTimerId);
+  }
+  refreshErrorTimerId = window.setTimeout(() => {
+    button.classList.remove(REFRESH_ERROR_CLASS);
+    refreshErrorTimerId = null;
+  }, REFRESH_ERROR_DURATION_MS);
 }
 
 function formatPostedAtForJapan(rawValue) {
@@ -611,7 +637,11 @@ function findRemovedPostIds(oldList, newList) {
 
 async function removeStreamPostsByIds(ids = []) {
   const normalizedIds = Array.from(
-    new Set(toArray(ids).map((id) => normalizeStreamId(id)).filter(Boolean))
+    new Set(
+      toArray(ids)
+        .map((id) => normalizeStreamId(id))
+        .filter(Boolean)
+    )
   );
   if (!normalizedIds.length) {
     return 0;
@@ -654,7 +684,7 @@ async function removeStreamPostsByIds(ids = []) {
 let syncInFlight = false;
 
 // API 経由で最新を取り込み、差分だけ追加
-async function syncStreamPosts() {
+async function syncStreamPosts(_options = {}) {
   if (!API_MODE) {
     console.info("[GCX] API mode=false (disabled)");
     return;
@@ -850,6 +880,27 @@ function ensureReloadSVG() {
   svg.appendChild(path);
   return svg;
 }
+
+function ensureErrorSVG() {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.classList.add("error-icon-svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "18");
+  svg.setAttribute("height", "18");
+  svg.setAttribute("focusable", "false");
+  svg.setAttribute("aria-hidden", "true");
+  ERROR_ICON_PATHS.forEach((d) => {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", ERROR_ICON_COLOR);
+    path.setAttribute("stroke-width", "2");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(path);
+  });
+  return svg;
+}
 // containerにulがなかったらulをcontainerにappend
 function ensureSuggestionsStructure(container) {
   if (!container) return null;
@@ -956,6 +1007,11 @@ function createTopbar() {
   refreshBtn.setAttribute("aria-label", "更新");
   // SVG アイコン（リロード）をインライン生成して先頭に挿入
   refreshBtn.prepend(ensureReloadSVG());
+  const errorTag = document.createElement("span");
+  errorTag.classList.add("error-tag");
+  errorTag.appendChild(ensureErrorSVG());
+  errorTag.setAttribute("aria-hidden", "true");
+  refreshBtn.append(errorTag);
   [
     "click",
     "mousedown",
@@ -969,12 +1025,17 @@ function createTopbar() {
   ].forEach((t) => refreshBtn.addEventListener(t, stop, { passive: true }));
 
   refreshBtn.addEventListener("click", async () => {
+    if (!API_MODE) {
+      flashRefreshError();
+      return;
+    }
     try {
       refreshBtn.disabled = true; // 連打防止
       refreshBtn.classList.add("is-spinning");
-      await syncStreamPosts();
+      await syncStreamPosts({ source: "manual" });
     } catch (err) {
       console.warn("[GCX] manual sync failed", err);
+      flashRefreshError();
     } finally {
       refreshBtn.classList.remove("is-spinning");
       refreshBtn.disabled = false;
@@ -1012,6 +1073,7 @@ function observe() {
       "[GCX] Periodic fetch failed. API mode=false とみなします",
       err
     );
+    flashRefreshError();
   });
   // 定期的にデータを同期（5 分ごと）
   if (POLL_INTERVAL_MS > 0) {
@@ -1022,6 +1084,7 @@ function observe() {
           "[GCX] Periodic fetch failed. API mode=false とみなします",
           err
         );
+        flashRefreshError();
       });
     }, POLL_INTERVAL_MS);
   }
@@ -1046,6 +1109,7 @@ const options = {
 let fuse;
 // IndexedDB からの読み込みが終わるまでの間に入力されたキーワードを保持する
 let lastQuery = "";
+let refreshErrorTimerId = null;
 // API モードのトグル UI / 切替ハンドラは削除
 // IndexedDB の投稿コレクションで Fuse を初期化
 async function initFuse() {
@@ -1119,7 +1183,6 @@ function extractMatchRanges(matches, key, textLength) {
 
 // 抽出した範囲に <span> を差し込んでハイライト
 function renderHighlightedText(element, value, matches, key) {
-
   const text = value == null ? "" : String(value);
   element.textContent = "";
   if (!text) {
@@ -1253,7 +1316,6 @@ function deriveAttachmentLabels(attachments) {
     .map((attachment) => deriveSingleAttachmentLabel(attachment))
     .filter((label) => Boolean(label));
 }
-
 
 function getCurrentCourseId() {
   const pathname = window.location?.pathname || "";
@@ -1393,7 +1455,12 @@ function createSuggestionItem(entry) {
 
   const teacher = document.createElement("span");
   teacher.classList.add("suggestion-teacher");
-  renderHighlightedText(teacher, item.teacherName || "(不明)", matches, "teacherName");
+  renderHighlightedText(
+    teacher,
+    item.teacherName || "(不明)",
+    matches,
+    "teacherName"
+  );
   headerMain.appendChild(teacher);
 
   if (attachmentLabels.length) {
@@ -1411,7 +1478,12 @@ function createSuggestionItem(entry) {
   const time = document.createElement("time");
   time.classList.add("suggestion-time");
   time.dateTime = item.postedAt?.datetime || "";
-  renderHighlightedText(time, item.postedAt?.text || "", matches, "postedAt.text");
+  renderHighlightedText(
+    time,
+    item.postedAt?.text || "",
+    matches,
+    "postedAt.text"
+  );
 
   header.append(headerMain, time);
 
@@ -1431,7 +1503,11 @@ function createSuggestionItem(entry) {
     activate();
   });
   li.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+    if (
+      event.key === "Enter" ||
+      event.key === " " ||
+      event.key === "Spacebar"
+    ) {
       event.preventDefault();
       activate();
     }
@@ -1491,6 +1567,7 @@ async function init() {
         "[GCX] Initial fetch failed. API mode=false とみなします",
         error
       );
+      flashRefreshError();
     }
   } else {
     console.info("[GCX] API mode=false (disabled)");

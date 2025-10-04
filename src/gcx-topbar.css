@@ -18,8 +18,7 @@
   border: 1px solid rgba(95, 99, 104, 0.28);
   border-radius: 18px;
   z-index: 1000;
-  transition: border-color 0.2s ease, border 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, border 0.2s ease, box-shadow 0.2s ease;
 }
 
 .gcx-topbar > .svg-input-wrap {
@@ -33,6 +32,7 @@
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.9);
   transition: border-color 0.2s ease, background 0.2s ease;
+  overflow: visible;
 }
 
 .gcx-topbar .gcx-topbar-input {
@@ -110,6 +110,9 @@
   cursor: pointer;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  position: relative;
+  overflow: visible;
 }
 .gcx-refresh-btn .icon-svg {
   width: 12px;
@@ -120,12 +123,32 @@
 .gcx-refresh-btn .icon-svg path {
   fill: black;
 }
+.gcx-refresh-btn .error-tag {
+  position: absolute;
+  top: -6px;
+  right: 1px;
+  display: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  z-index: 4;
+  pointer-events: none;
+}
+.gcx-refresh-btn.is-error .error-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gcx-refresh-btn .error-tag svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
 .gcx-refresh-btn.is-spinning .icon-svg {
   animation: gcx-spin 0.9s linear infinite;
   transform-origin: 50% 50%;
-}
-.gcx-refresh-btn:hover:not(:disabled) {
-  background: rgba(93, 94, 96, 0.12);
 }
 .gcx-refresh-btn:disabled {
   opacity: 0.6;
