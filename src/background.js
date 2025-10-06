@@ -2,6 +2,7 @@
 // Uses chrome.identity.getAuthToken (no client_secret) and proxies API calls.
 
 const CLASSROOM_BASE = 'https://classroom.googleapis.com/v1';
+// Restrict proxy fetches to Classroom API only (must match manifest host_permissions)
 const ALLOWED_API_HOSTS = new Set(['classroom.googleapis.com']);
 
 function assertAllowedTarget(target) {
