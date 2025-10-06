@@ -3,6 +3,12 @@
   "name": "Classroom-Finder",
   "version": "1.0.0",
   "description": "Google Classroom に高速横断検索を追加",
+  "icons": {
+    "16": "src/libs/icon.svg/Classroom-finder-icon.png",
+    "32": "src/libs/icon.svg/Classroom-finder-icon.png",
+    "48": "src/libs/icon.svg/Classroom-finder-icon.png",
+    "128": "src/libs/icon.svg/Classroom-finder-icon.png"
+  },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt8zNAlcZVVfy+UNwOD8Qx3HVR3ghLG4QPo1H6tF4UJvGr1ouGqMVx7lDDfpadQggnKeCd02RZhtOljYe4u+xfwzQEX1tnHerJVR4sjSq04drirC4eexDksFL21/JUSk2FP5GiY8Nhl/n9Y8UR8quPwcNHTzPu3sKCQa5T7oIZYE9wjripLqakfviArIaqCRnn7Lypl2PvMraC0A1Nc4eqGWHsjF2UNHthlySn1Nb+zDcHKBB3VBK2vlmtoIJ+djVHhNOwxBPhXA7Spt+4t+YvUK1m6g3T6H2Ild0NMxOTlXLYPCFCz8OiQoLxpBfqta1pV6hkqR592E6yJPTLtt+DwIDAQAB",
   "permissions": ["storage", "scripting", "identity"],
   "host_permissions": [

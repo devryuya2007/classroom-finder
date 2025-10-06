@@ -21,15 +21,22 @@ Google Classroom（Web）に**高速・高精度の横断検索**を付与する
 - BG 経由の API コールは `https://classroom.googleapis.com` の `GET` のみ許可（任意 URL/メソッド禁止）
 - DOM 描画は `textContent`/`createTextNode` ベース（`innerHTML` 不使用）
 
+### 設計のポイント
+
+- API 取得 → IndexedDB 保存 → Fuse.js 検索 のシンプル三層
+- UI はトップバー常駐・非侵入（既存 UI への干渉を最小化）
+- 差分同期（新規追加/削除）で再索引のコストを抑制
+- 拡張内リソースのみを読み込み（CSP を尊重、外部 CDN 不使用）
+
 ---
 
-## スクリーンショット（準備中）
+## スクリーンショット
 
-`/screenshots` に配置
+検索バー（上部固定）と、検索候補パネルのイメージです。
 
-- 検索バー（サイドバー常駐、sticky）
-- クイック検索（上部ナビゲーションバー右側：`nav.joJglb` 内）
-- 結果パネル（タイトル/抜粋/クラス/タイプ/期日/添付アイコン）
+![クイック検索バー - 上部固定](src/libs/icon.svg/Screenshot%202025-10-06%2010.08.28.png)
+
+![検索候補パネルとハイライト](src/libs/icon.svg/Screenshot%202025-10-06%2010.08.43.png)
 
 ---
 
@@ -56,6 +63,28 @@ Google Classroom（Web）に**高速・高精度の横断検索**を付与する
 - フィルタ：教師・期日・添付タイプをチップ/ドロップダウンで AND 適用
 
 補足：上部バーのクイック検索は独自クラス（`gcx-topbar`, `gcx-topbar-input`）でスタイリングしており、Classroom のメニュー実装と干渉しないように設計しています。
+
+---
+
+## アイコン / ファビコン
+
+- 使用アイコン（PNG マスター）: `src/libs/icon.svg/Classroom-finder-icon.png`（1024×1024）
+- manifest.json にアイコンを登録済み（各サイズに同一 PNG を指定）
+
+manifest.json の設定は以下のとおりです（本リポジトリのファイルパスに合わせています）。
+
+```jsonc
+{
+  "icons": {
+    "16": "src/libs/icon.svg/Classroom-finder-icon.png",
+    "32": "src/libs/icon.svg/Classroom-finder-icon.png",
+    "48": "src/libs/icon.svg/Classroom-finder-icon.png",
+    "128": "src/libs/icon.svg/Classroom-finder-icon.png"
+  }
+}
+```
+
+注: 現在は 1 つの高解像度 PNG を各サイズとして登録しています（Chrome が適切に縮小します）。必要に応じて将来、個別サイズの PNG を用意することも可能です。
 
 ---
 
