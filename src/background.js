@@ -29,6 +29,38 @@ async function listIdentityAccounts() {
   });
 }
 
+async function getProfileInfoForAccount(account) {
+  if (!account?.id) return { id: account?.id || null, email: account?.email || null };
+  return new Promise((resolve) => {
+    try {
+      const details = { account: { id: account.id } };
+      chrome.identity.getProfileUserInfo(details, (info) => {
+        if (chrome.runtime.lastError) {
+          resolve({ id: account.id, email: account.email || null });
+          return;
+        }
+        resolve({ id: info?.id || account.id, email: info?.email || account.email || null });
+      });
+    } catch (err) {
+      console.debug('[GCX] getProfileUserInfo failed', err);
+      resolve({ id: account.id, email: account.email || null });
+    }
+  });
+}
+
+async function listIdentityAccountsWithProfiles() {
+  const accounts = await listIdentityAccounts();
+  const enriched = [];
+  for (const account of accounts) {
+    const profile = await getProfileInfoForAccount(account);
+    enriched.push({
+      id: profile.id || account.id || null,
+      email: profile.email || account.email || null,
+    });
+  }
+  return enriched;
+}
+
 function assertAllowedTarget(target) {
   let url;
   try {
@@ -109,6 +141,7 @@ async function invalidateAccountToken(account) {
 async function getAuthToken({ interactive = false, accountHint } = {}) {
   let accountParam;
   let resolvedAccount = null;
+  clearAllCachedTokens();
   if (accountHint) {
     const result = await resolveAccountFromHint(accountHint);
     resolvedAccount = result.account;
@@ -242,6 +275,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.type === 'GCX_GOOGLE_GET_TOKEN') {
         const token = await getAuthToken({ interactive: !!msg.interactive, accountHint: msg.accountHint });
         sendResponse({ ok: true, token });
+        return;
+      }
+
+      if (msg.type === 'GCX_IDENTITY_LIST') {
+        const accounts = await listIdentityAccountsWithProfiles();
+        sendResponse({ ok: true, accounts });
         return;
       }
 

@@ -44,6 +44,34 @@ const LOGIN_ERROR_KEYWORDS = [
   "http 401",
 ];
 
+let identityAccounts = [];
+
+async function ensureIdentityAccounts() {
+  if (identityAccounts.length) return identityAccounts;
+  try {
+    const accounts = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: "GCX_IDENTITY_LIST" }, (res) => {
+        const runtimeError = chrome.runtime.lastError;
+        if (runtimeError) {
+          reject(new Error(runtimeError.message));
+          return;
+        }
+        if (!res || !Array.isArray(res.accounts)) {
+          resolve([]);
+          return;
+        }
+        resolve(res.accounts);
+      });
+    });
+    if (Array.isArray(accounts)) {
+      identityAccounts = accounts;
+    }
+  } catch (err) {
+    console.debug("[GCX] failed to load identity accounts", err);
+  }
+  return identityAccounts;
+}
+
 const JAPAN_TIME_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
   timeZone: "Asia/Tokyo",
   year: "numeric",
@@ -101,6 +129,7 @@ function ensureStyles() {
 // ===== Google Classroom API helper =====
 // バックグラウンドに依頼して Classroom API を叩く
 async function bgFetch(request) {
+  await ensureIdentityAccounts();
   const accountHint = getAccountHint();
   return new Promise((resolve, reject) => {
     try {
@@ -327,6 +356,9 @@ function resolveRefreshErrorPlaceholder(error) {
     return PLACEHOLDER_SYNC_ERROR;
   }
   const message = String(error?.message || error || "").toLowerCase();
+  if (/(quota|ratelimit|too many|429)/.test(message)) {
+    return "アクセスが多すぎます。しばらく待ってから再試行してください";
+  }
   if (RELOAD_ERROR_KEYWORDS.some((keyword) => message.includes(keyword))) {
     return PLACEHOLDER_RELOAD_REQUIRED;
   }
@@ -620,10 +652,13 @@ function getClassroomAccountEmail() {
 }
 
 function getAccountHint() {
+  const index = getAccountIndex();
+  const account = identityAccounts[index];
+  const fallbackEmail = normalizeEmail(account?.email);
   return {
-    index: getAccountIndex(),
-    gaiaId: getClassroomGaiaId(),
-    email: getClassroomAccountEmail(),
+    index,
+    gaiaId: getClassroomGaiaId() || account?.id || null,
+    email: getClassroomAccountEmail() || fallbackEmail || null,
   };
 }
 
