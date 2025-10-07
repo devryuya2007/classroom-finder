@@ -101,11 +101,26 @@ function ensureStyles() {
 // ===== Google Classroom API helper =====
 // バックグラウンドに依頼して Classroom API を叩く
 async function bgFetch(request) {
+  const accountHint = getAccountHint();
   return new Promise((resolve, reject) => {
     try {
       chrome.runtime.sendMessage(
-        { type: "GCX_GOOGLE_FETCH", request },
+        { type: "GCX_GOOGLE_FETCH", request, accountHint },
         (res) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError) {
+            if (
+              typeof runtimeError.message === "string" &&
+              runtimeError.message.includes("Extension context invalidated")
+            ) {
+              console.warn("[GCX] background context invalidated; reloading page");
+              setTimeout(() => {
+                window.location.reload();
+              }, 0);
+            }
+            reject(new Error(runtimeError.message));
+            return;
+          }
           if (!res) return reject(new Error("No response from background"));
           if (!res.ok)
             return reject(new Error(res.error || `HTTP ${res.status}`));
@@ -492,13 +507,134 @@ function hashString(input) {
   return (hash >>> 0).toString(36);
 }
 
-const STREAM_DB_NAME = "gcx-stream";
+const STREAM_DB_NAME_BASE = "gcx-stream";
 const STREAM_DB_VERSION = 1;
 const STREAM_STORE_NAME = "posts";
 
+function getClassroomAccountKey() {
+  try {
+    const url = new URL(window.location.href);
+    const authuserParam = url.searchParams.get("authuser");
+    if (authuserParam && /^\d+$/.test(authuserParam)) {
+      return `u${authuserParam}`;
+    }
+    const pathMatch = url.pathname.match(/\/u\/(\d+)(?:\/|$)/);
+    if (pathMatch && pathMatch[1]) {
+      return `u${pathMatch[1]}`;
+    }
+  } catch (err) {
+    console.debug("[GCX] account key detection failed", err);
+  }
+  return "u0";
+}
+
+function getAccountIndex() {
+  const key = getClassroomAccountKey();
+  const match = /^u(\d+)$/.exec(key);
+  if (match) {
+    const value = Number.parseInt(match[1], 10);
+    if (Number.isInteger(value) && value >= 0) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+
+function normalizeEmail(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(EMAIL_PATTERN);
+  return match ? match[0].toLowerCase() : null;
+}
+
+function getWizGlobalData() {
+  const data = window.WIZ_global_data;
+  if (data && typeof data === "object") {
+    return data;
+  }
+  return null;
+}
+
+function getClassroomGaiaId() {
+  const data = getWizGlobalData();
+  const candidateKeys = ["S06Grb", "W3Yyqf", "WZsZ1e", "Yllh3e"];
+  if (data) {
+    for (const key of candidateKeys) {
+      const value = data[key];
+      if (typeof value === "string" && /^\d{5,}$/.test(value)) {
+        return value;
+      }
+    }
+    for (const value of Object.values(data)) {
+      if (typeof value === "string" && /^\d{5,}$/.test(value)) {
+        return value;
+      }
+    }
+  }
+  const metaId = document.querySelector('meta[name="og-profile-id"]');
+  const metaValue = metaId?.getAttribute("content");
+  if (metaValue && /^\d{5,}$/.test(metaValue.trim())) {
+    return metaValue.trim();
+  }
+  return null;
+}
+
+function getClassroomAccountEmail() {
+  const meta = document.querySelector('meta[name="og-profile-acct"]');
+  const metaEmail = normalizeEmail(meta?.getAttribute("content"));
+  if (metaEmail) return metaEmail;
+
+  const data = getWizGlobalData();
+  if (data) {
+    for (const value of Object.values(data)) {
+      if (typeof value === "string") {
+        const email = normalizeEmail(value);
+        if (email) return email;
+      }
+    }
+  }
+
+  const selectors = [
+    '[data-email]',
+    'a[aria-label*="@"]',
+    'a[href*="SignOutOptions"][aria-label]',
+    'img[alt*="@"]',
+  ];
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (!element) continue;
+    const attrEmail = normalizeEmail(element.getAttribute("data-email"));
+    if (attrEmail) return attrEmail;
+    const ariaEmail = normalizeEmail(element.getAttribute("aria-label"));
+    if (ariaEmail) return ariaEmail;
+    const altEmail = normalizeEmail(element.getAttribute("alt"));
+    if (altEmail) return altEmail;
+    const textEmail = normalizeEmail(element.textContent || "");
+    if (textEmail) return textEmail;
+  }
+
+  return null;
+}
+
+function getAccountHint() {
+  return {
+    index: getAccountIndex(),
+    gaiaId: getClassroomGaiaId(),
+    email: getClassroomAccountEmail(),
+  };
+}
+
+function getStreamDbName() {
+  return `${STREAM_DB_NAME_BASE}-${getClassroomAccountKey()}`;
+}
+
 // streamIdを主としてopen
 function openStreamDB() {
-  const request = indexedDB.open(STREAM_DB_NAME, STREAM_DB_VERSION);
+  const dbName = getStreamDbName();
+  const request = indexedDB.open(dbName, STREAM_DB_VERSION);
   request.onupgradeneeded = (event) => {
     const db = event.target.result;
     if (!db.objectStoreNames.contains(STREAM_STORE_NAME)) {
@@ -734,6 +870,13 @@ async function removeStreamPostsByIds(ids = []) {
 
 let syncInFlight = false;
 
+function resetSearchResults() {
+  if (fuse) {
+    fuse.setCollection([]);
+  }
+  renderSuggestions([]);
+}
+
 // API 経由で最新を取り込み、差分だけ追加
 async function syncStreamPosts(_options = {}) {
   if (!API_MODE) {
@@ -742,11 +885,10 @@ async function syncStreamPosts(_options = {}) {
   }
   if (syncInFlight) return;
   syncInFlight = true;
+  let savedPosts = [];
   try {
-    const [savedPosts, currentPostsRaw] = await Promise.all([
-      loadStreamPostsFromDb(),
-      fetchAllAnnouncementsPosts(),
-    ]);
+    savedPosts = await loadStreamPostsFromDb();
+    const currentPostsRaw = await fetchAllAnnouncementsPosts();
 
     const existingPosts = toArray(savedPosts);
     const currentPosts = toArray(currentPostsRaw);
@@ -779,8 +921,15 @@ async function syncStreamPosts(_options = {}) {
         fuse.setCollection(updated); //最新の配列に差し替える
         rerunLastQuery();
       }
+    } else if (!existingPosts.length) {
+      resetSearchResults();
     }
     setTopbarPlaceholder(PLACEHOLDER_DEFAULT);
+  } catch (error) {
+    if (!savedPosts.length) {
+      resetSearchResults();
+    }
+    throw error;
   } finally {
     syncInFlight = false;
   }
@@ -1717,5 +1866,9 @@ if (typeof window !== "undefined") {
     syncStreamPosts,
     getFuse: () => fuse,
     runSearchPreview: (query) => collectTopMatches(query),
+    getAccountHint,
+    getAccountIndex,
+    getClassroomGaiaId,
+    getClassroomAccountEmail,
   };
 }

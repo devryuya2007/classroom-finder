@@ -4,6 +4,30 @@
 const CLASSROOM_BASE = 'https://classroom.googleapis.com/v1';
 // Restrict proxy fetches to Classroom API only (must match manifest host_permissions)
 const ALLOWED_API_HOSTS = new Set(['classroom.googleapis.com']);
+const EMAIL_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/i;
+
+async function listIdentityAccounts() {
+  if (!chrome.identity?.getAccounts) return [];
+  return new Promise((resolve) => {
+    try {
+      chrome.identity.getAccounts((accounts) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[GCX] getAccounts failed', chrome.runtime.lastError.message);
+          resolve([]);
+          return;
+        }
+        if (Array.isArray(accounts)) {
+          resolve(accounts);
+        } else {
+          resolve([]);
+        }
+      });
+    } catch (err) {
+      console.warn('[GCX] getAccounts threw', err);
+      resolve([]);
+    }
+  });
+}
 
 function assertAllowedTarget(target) {
   let url;
@@ -21,14 +45,94 @@ function assertAllowedTarget(target) {
   return url.toString();
 }
 
-async function getAuthToken({ interactive = false } = {}) {
+function normalizeEmail(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(EMAIL_REGEX);
+  return match ? match[0].toLowerCase() : null;
+}
+
+async function resolveAccountFromHint(accountHint) {
+  const accounts = await listIdentityAccounts();
+  if (!accounts.length) {
+    return { account: null, accounts };
+  }
+  if (accountHint && typeof accountHint === 'object') {
+    const { gaiaId, email, index } = accountHint;
+    if (gaiaId) {
+      const matchById = accounts.find((acc) => acc?.id === gaiaId);
+      if (matchById) {
+        return { account: matchById, accounts };
+      }
+    }
+    const normalizedEmail = normalizeEmail(email);
+    if (normalizedEmail) {
+      const matchByEmail = accounts.find((acc) => normalizeEmail(acc?.email) === normalizedEmail);
+      if (matchByEmail) {
+        return { account: matchByEmail, accounts };
+      }
+    }
+    if (typeof index === 'number' && index >= 0 && index < accounts.length) {
+      return { account: accounts[index], accounts };
+    }
+  }
+  return { account: null, accounts };
+}
+
+let lastAccountId = null;
+
+async function invalidateAccountToken(account) {
+  if (!account?.id) return;
+  try {
+    await new Promise((resolve) => {
+      chrome.identity.getAuthToken(
+        { interactive: false, account: { id: account.id } },
+        async (token) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError) {
+            resolve();
+            return;
+          }
+          if (token) {
+            await removeCachedToken(token);
+          }
+          resolve();
+        }
+      );
+    });
+  } catch (err) {
+    console.debug('[GCX] invalidateAccountToken failed', err);
+  }
+}
+
+async function getAuthToken({ interactive = false, accountHint } = {}) {
+  let accountParam;
+  let resolvedAccount = null;
+  if (accountHint) {
+    const result = await resolveAccountFromHint(accountHint);
+    resolvedAccount = result.account;
+    if (resolvedAccount?.id) {
+      accountParam = { id: resolvedAccount.id };
+      if (resolvedAccount.id !== lastAccountId) {
+        await invalidateAccountToken(resolvedAccount);
+      }
+    }
+  }
   return new Promise((resolve, reject) => {
     try {
-      chrome.identity.getAuthToken({ interactive }, (token) => {
+      const details = { interactive };
+      if (accountParam) {
+        details.account = accountParam;
+      }
+      chrome.identity.getAuthToken(details, (token) => {
         if (chrome.runtime.lastError) {
           return reject(new Error(chrome.runtime.lastError.message));
         }
         if (!token) return reject(new Error('No token'));
+        if (resolvedAccount?.id) {
+          lastAccountId = resolvedAccount.id;
+        }
         resolve(token);
       });
     } catch (err) {
@@ -74,16 +178,17 @@ function buildUrl(base, pathOrUrl, params) {
   return url.toString();
 }
 
-async function googleFetch({
-  url,
-  path,
-  params,
-  method = 'GET',
-  headers = {},
-  body,
-  base = CLASSROOM_BASE,
-  interactiveOnRetry = true,
-} = {}) {
+async function googleFetch(request = {}, accountHint) {
+  const {
+    url,
+    path,
+    params,
+    method = 'GET',
+    headers = {},
+    body,
+    base = CLASSROOM_BASE,
+    interactiveOnRetry = true,
+  } = request;
   // Build and validate target URL strictly for Classroom API only
   const rawTarget = url || buildUrl(base, path || '', params);
   const target = assertAllowedTarget(rawTarget);
@@ -96,7 +201,7 @@ async function googleFetch({
 
   // Try silent first, then one interactive retry if unauthorized
   try {
-    const token = await getAuthToken({ interactive: false });
+    const token = await getAuthToken({ interactive: false, accountHint });
     const res = await fetch(target, {
       method: 'GET',
       headers: { ...(headers || {}), Authorization: `Bearer ${token}` },
@@ -106,7 +211,7 @@ async function googleFetch({
     if (res.status === 401 || res.status === 403) {
       await removeCachedToken(token);
       if (interactiveOnRetry) {
-        const token2 = await getAuthToken({ interactive: true });
+        const token2 = await getAuthToken({ interactive: true, accountHint });
         const res2 = await fetch(target, {
           method: 'GET',
           headers: { ...(headers || {}), Authorization: `Bearer ${token2}` },
@@ -118,7 +223,7 @@ async function googleFetch({
     return res;
   } catch (_err) {
     // Fallback: interactive fetch once
-    const token = await getAuthToken({ interactive: true });
+    const token = await getAuthToken({ interactive: true, accountHint });
     return fetch(target, {
       method: 'GET',
       headers: { ...(headers || {}), Authorization: `Bearer ${token}` },
@@ -135,13 +240,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (sender && sender.id && sender.id !== chrome.runtime.id) return;
 
       if (msg.type === 'GCX_GOOGLE_GET_TOKEN') {
-        const token = await getAuthToken({ interactive: !!msg.interactive });
+        const token = await getAuthToken({ interactive: !!msg.interactive, accountHint: msg.accountHint });
         sendResponse({ ok: true, token });
         return;
       }
 
       if (msg.type === 'GCX_GOOGLE_FETCH') {
-        const res = await googleFetch(msg.request || msg);
+        const res = await googleFetch(msg.request || {}, msg.accountHint);
         const ct = res.headers.get('content-type') || '';
         let data = null;
         if (ct.includes('application/json')) data = await res.json();

@@ -11,7 +11,10 @@
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt8zNAlcZVVfy+UNwOD8Qx3HVR3ghLG4QPo1H6tF4UJvGr1ouGqMVx7lDDfpadQggnKeCd02RZhtOljYe4u+xfwzQEX1tnHerJVR4sjSq04drirC4eexDksFL21/JUSk2FP5GiY8Nhl/n9Y8UR8quPwcNHTzPu3sKCQa5T7oIZYE9wjripLqakfviArIaqCRnn7Lypl2PvMraC0A1Nc4eqGWHsjF2UNHthlySn1Nb+zDcHKBB3VBK2vlmtoIJ+djVHhNOwxBPhXA7Spt+4t+YvUK1m6g3T6H2Ild0NMxOTlXLYPCFCz8OiQoLxpBfqta1pV6hkqR592E6yJPTLtt+DwIDAQAB",
   "permissions": ["storage", "identity"],
-  "host_permissions": ["https://classroom.google.com/*"],
+  "host_permissions": [
+    "https://classroom.google.com/*",
+    "https://classroom.googleapis.com/*"
+  ],
   "content_scripts": [
     {
       "matches": ["https://classroom.google.com/*"],
