@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Classroom-Finder サポート</title>
+    <meta name="description" content="Classroom-Finder 拡張機能のサポート情報 (日本語・英語)" />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Inter", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+        line-height: 1.7;
+        --brand-primary: #2563eb;
+        --brand-secondary: #1d4ed8;
+        --brand-accent: #eff6ff;
+        --text-main: #1f2937;
+        --text-muted: #4b5563;
+        --border-soft: rgba(29, 78, 216, 0.18);
+        --shadow-soft: 0 28px 48px rgba(37, 99, 235, 0.16);
+        background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 55%, #eef2ff 100%);
+        color: var(--text-main);
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        padding: 2.5rem 1.5rem 4rem;
+        background: inherit;
+      }
+      .page-wrap {
+        max-width: 980px;
+        width: 100%;
+        background: #ffffff;
+        border-radius: 28px;
+        box-shadow: var(--shadow-soft);
+        border: 1px solid var(--border-soft);
+        overflow: hidden;
+      }
+      header {
+        padding: 3.75rem 3.25rem 2.4rem;
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.96), rgba(30, 64, 175, 0.88));
+        color: #ffffff;
+        position: relative;
+      }
+      header::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.24), transparent 45%), radial-gradient(circle at 82% 28%, rgba(96, 165, 250, 0.35), transparent 55%), radial-gradient(circle at 60% 82%, rgba(59, 130, 246, 0.18), transparent 62%);
+        pointer-events: none;
+      }
+      header h1 {
+        margin: 0;
+        font-size: clamp(2.1rem, 4vw, 3rem);
+        letter-spacing: 0.015em;
+        position: relative;
+        z-index: 1;
+      }
+      #support-heading-suffix {
+        font-weight: 500;
+        margin-left: 0.4rem;
+      }
+      .last-updated,
+      .intro-lead {
+        position: relative;
+        z-index: 1;
+      }
+      .last-updated {
+        margin-top: 0.85rem;
+        font-size: 1.05rem;
+        opacity: 0.9;
+        color: rgba(255, 255, 255, 0.92);
+      }
+      .intro-lead {
+        margin-top: 1.65rem;
+        max-width: 700px;
+        font-size: 1.05rem;
+        line-height: 1.75;
+        opacity: 0.95;
+        color: rgba(255, 255, 255, 0.95);
+      }
+      nav.lang-switcher {
+        display: flex;
+        gap: 1rem;
+        padding: 1.6rem 3.25rem 0.75rem;
+        background: linear-gradient(180deg, rgba(37, 99, 235, 0.12), transparent);
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        row-gap: 0.75rem;
+      }
+      .lang-switcher button {
+        padding: 0.55rem 1.35rem;
+        border-radius: 999px;
+        border: 1px solid rgba(37, 99, 235, 0.28);
+        background: rgba(255, 255, 255, 0.85);
+        cursor: pointer;
+        font: inherit;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        color: var(--text-main);
+      }
+      .lang-switcher button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 24px rgba(37, 99, 235, 0.2);
+      }
+      .lang-switcher button[aria-pressed="true"] {
+        background: var(--brand-primary);
+        color: #ffffff;
+        border-color: var(--brand-secondary);
+        box-shadow: 0 18px 32px rgba(37, 99, 235, 0.28);
+      }
+      .lang-switcher button:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, 0.45);
+        outline-offset: 2px;
+      }
+      main {
+        padding: 3rem 3.25rem 3.75rem;
+        background: linear-gradient(180deg, rgba(239, 246, 255, 0.55), #ffffff 35%);
+      }
+      section {
+        margin-bottom: 3rem;
+        padding: 2.25rem 2rem;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(37, 99, 235, 0.12);
+        border-radius: 20px;
+        box-shadow: 0 16px 36px rgba(37, 99, 235, 0.08);
+      }
+      section:last-of-type {
+        margin-bottom: 0;
+      }
+      section h2 {
+        margin-top: 0;
+        font-size: 1.45rem;
+        color: var(--brand-secondary);
+        letter-spacing: 0.01em;
+      }
+      section h2::after {
+        content: "";
+        display: block;
+        margin-top: 0.45rem;
+        width: 56px;
+        height: 3px;
+        background: linear-gradient(90deg, var(--brand-primary), rgba(37, 99, 235, 0));
+        border-radius: 999px;
+      }
+      p,
+      li {
+        color: var(--text-muted);
+      }
+      ul,
+      ol {
+        padding-left: 1.5rem;
+      }
+      a {
+        color: var(--brand-secondary);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .callout-grid {
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        margin: 1.3rem 0 1.6rem;
+      }
+      .callout-card {
+        background: var(--brand-accent);
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        border-radius: 16px;
+        padding: 1rem 1.1rem;
+        box-shadow: 0 12px 24px rgba(37, 99, 235, 0.08);
+      }
+      .callout-card h3 {
+        margin: 0 0 0.5rem;
+        font-size: 1.05rem;
+        color: var(--brand-secondary);
+      }
+      footer {
+        padding: 1.85rem 3.25rem 2.6rem;
+        background: rgba(37, 99, 235, 0.08);
+        border-top: 1px solid rgba(37, 99, 235, 0.16);
+        font-size: 0.95rem;
+      }
+      footer a {
+        font-weight: 600;
+      }
+      @media (max-width: 720px) {
+        body {
+          padding: 1.75rem 1.25rem 3.25rem;
+        }
+        .page-wrap {
+          border-radius: 22px;
+        }
+        header,
+        nav.lang-switcher,
+        main,
+        footer {
+          padding-left: 1.5rem;
+          padding-right: 1.5rem;
+        }
+        nav.lang-switcher {
+          padding-top: 1.2rem;
+          gap: 0.85rem;
+        }
+        section {
+          padding: 1.9rem 1.4rem;
+        }
+      }
+
+      @media (max-width: 540px) {
+        body {
+          padding: 1.35rem 0.95rem 2.6rem;
+        }
+        header,
+        nav.lang-switcher,
+        main,
+        footer {
+          padding-left: 1.2rem;
+          padding-right: 1.2rem;
+        }
+        header {
+          padding-top: 3rem;
+          padding-bottom: 2rem;
+        }
+        header h1 {
+          font-size: clamp(1.8rem, 7vw, 2.4rem);
+        }
+        .intro-lead {
+          font-size: 0.98rem;
+          margin-top: 1.4rem;
+        }
+        nav.lang-switcher {
+          gap: 0.65rem;
+          padding-top: 1.05rem;
+        }
+        .lang-switcher button {
+          flex: 1 1 160px;
+          text-align: center;
+        }
+        section {
+          padding: 1.6rem 1.1rem;
+          margin-bottom: 2.4rem;
+        }
+        .callout-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 360px) {
+        body {
+          padding: 1.1rem 0.75rem 2.4rem;
+        }
+        header,
+        nav.lang-switcher,
+        main,
+        footer {
+          padding-left: 1rem;
+          padding-right: 1rem;
+        }
+        .lang-switcher button {
+          flex: 1 1 140px;
+          padding: 0.5rem 1rem;
+        }
+        section {
+          padding: 1.45rem 1rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-wrap">
+      <a id="top" href="#main" style="position: absolute; left: -999px">Skip to content</a>
+      <header>
+        <h1>Classroom-Finder <span id="support-heading-suffix">サポート</span></h1>
+        <p class="last-updated">最終更新日 / Last Updated: 2024-09-05</p>
+        <p class="intro-lead"> Classroom-Finder の導入やトラブル解決に役立つガイドです。よくある質問、トラブルシューティング、連絡先情報を用意しています。 </p>
+      </header>
+
+      <nav aria-label="Language switcher" class="lang-switcher">
+        <button type="button" data-lang="ja" data-title="Classroom-Finder サポート" data-suffix="サポート" aria-pressed="true">日本語</button>
+        <button type="button" data-lang="en" data-title="Classroom-Finder Support" data-suffix="Support" aria-pressed="false">English</button>
+      </nav>
+
+      <main id="main">
+        <section id="support-ja" lang="ja" data-lang-section>
+          <div class="callout-grid">
+            <div class="callout-card">
+              <h3>導入のポイント</h3>
+              <p>基本は Chrome ウェブストアから追加するだけで利用可能。</p>
+            </div>
+            <div class="callout-card">
+              <h3>サポート窓口</h3>
+              <p><a href="mailto:devryuya2007@gmail.com">devryuya2007@gmail.com</a> までメールでお問い合わせください。</p>
+            </div>
+            <div class="callout-card">
+              <h3>プライバシー</h3>
+              <p>データは端末内にのみ保存されます。詳細は <a href="privacy.html">プライバシーポリシー</a> をご確認ください。</p>
+            </div>
+          </div>
+
+          <h2>1. サポート概要</h2>
+          <p>Classroom-Finder は、Google Classroom 上のコースとストリーム投稿を高速に検索するための Chrome 拡張機能です。本ページでは、基本的な操作方法やトラブルシューティング、問い合わせ先を案内します。Google LLC とは提携していません。</p>
+
+          <h2>2. よくある質問 (FAQ)</h2>
+          <ul>
+            <li><strong>拡張をインストールするには？</strong> Chrome ウェブストアから「Classroom-Finder」を追加するだけで利用できます。開発版を試す場合のみ、<code>chrome://extensions</code> で「デベロッパーモード」を有効にしてフォルダを読み込んでください。</li>
+            <li><strong>検索バーが表示されません。</strong> Classroom ページを再読み込みし、拡張が有効になっていることを確認してください。続くセクションの手順で詳細を確認できます。</li>
+            <li><strong>Google アカウントの許可を取り消したい。</strong> Google アカウント設定 &gt; セキュリティ &gt; アカウントへのアクセスを許可したアプリから、本拡張を選択してアクセス権を削除できます。</li>
+          </ul>
+
+          <h2>3. トラブルシューティング</h2>
+          <ol>
+            <li>Classroom ページを再読み込みし、Chrome アドレスバー右の拡張アイコン表示を確認する。</li>
+            <li><code>chrome://extensions</code> を開き、「更新」ボタンで拡張を再読み込みする。</li>
+            <li>「エラーを表示」をクリックし、サービスワーカーやコンテンツスクリプトのログを確認する。</li>
+            <li>必要に応じて拡張をアンインストールし、再インストールする。</li>
+          </ol>
+          <p>問題が解決しない場合は、ログ情報（エラー内容、再現手順など）を添えてお問い合わせください。</p>
+
+          <h2>4. データとプライバシー</h2>
+          <p>本拡張が扱うデータや保護方針については、<a href="privacy.html">プライバシーポリシー</a> を参照してください。取得した Classroom データはすべて端末内に保存され、開発者サーバーには送信されません。</p>
+
+          <h2>5. 連絡先</h2>
+          <p>サポート依頼・バグ報告・権利行使の要請は、以下のメールアドレスまでご連絡ください。</p>
+          <p><a href="mailto:devryuya2007@gmail.com">devryuya2007@gmail.com</a></p>
+          <p>メールには以下の情報を含めていただくと、迅速に対応できます。</p>
+          <ul>
+            <li>使用しているブラウザのバージョンと OS</li>
+            <li>再現手順と発生時刻</li>
+            <li>表示されたエラーメッセージやスクリーンショット（可能であれば）</li>
+          </ul>
+        </section>
+
+        <section id="support-en" lang="en" data-lang-section hidden>
+          <div class="callout-grid">
+            <div class="callout-card">
+              <h3>Getting Started</h3>
+              <p>Install from the Chrome Web Store. Only when testing dev builds do you need <code>chrome://extensions</code> with Developer Mode.</p>
+            </div>
+            <div class="callout-card">
+              <h3>Contact</h3>
+              <p>Email us at <a href="mailto:devryuya2007@gmail.com">devryuya2007@gmail.com</a> for support requests.</p>
+            </div>
+            <div class="callout-card">
+              <h3>Privacy</h3>
+              <p>All data stays on your device. See the <a href="privacy.html">Privacy Policy</a> for details.</p>
+            </div>
+          </div>
+
+          <h2>1. Support Overview</h2>
+          <p>Classroom-Finder is a Chrome extension that helps you search Google Classroom courses and stream posts quickly. This page summarizes usage tips, troubleshooting steps, and contact information. The project is independently maintained and not affiliated with Google LLC.</p>
+
+          <h2>2. Frequently Asked Questions (FAQ)</h2>
+          <ul>
+            <li><strong>How do I install the extension?</strong> Install “Classroom-Finder” directly from the Chrome Web Store. Loading the folder via <code>chrome://extensions</code> is only needed when testing the development build.</li>
+            <li><strong>The search bar does not appear.</strong> Reload the Classroom page and ensure the extension is enabled. Follow the troubleshooting steps below if the issue persists.</li>
+            <li><strong>How can I revoke Google account access?</strong> Open Google Account settings &gt; Security &gt; Third-party apps with account access, select this extension, and remove access.</li>
+          </ul>
+
+          <h2>3. Troubleshooting</h2>
+          <ol>
+            <li>Reload the Classroom page and check whether the extension icon appears next to the Chrome address bar.</li>
+            <li>Open <code>chrome://extensions</code> and click “Reload” for the extension.</li>
+            <li>Click “View errors” to review service worker or content script logs.</li>
+            <li>Uninstall and reinstall the extension if necessary.</li>
+          </ol>
+          <p>If the problem continues, please contact us with logs, error messages, and reproduction steps.</p>
+
+          <h2>4. Data &amp; Privacy</h2>
+          <p>For details about data handling, please review the <a href="privacy.html">Privacy Policy</a>. All Classroom data stays on your device and is never sent to developer-controlled servers.</p>
+
+          <h2>5. Contact</h2>
+          <p>For support requests, bug reports, or privacy inquiries, email us at:</p>
+          <p><a href="mailto:devryuya2007@gmail.com">devryuya2007@gmail.com</a></p>
+          <p>Including the following information helps us respond faster:</p>
+          <ul>
+            <li>Your browser version and operating system</li>
+            <li>Steps to reproduce the issue and when it occurred</li>
+            <li>Any error messages or screenshots (if available)</li>
+          </ul>
+        </section>
+      </main>
+
+      <footer>
+        <p><a href="#top">トップへ戻る / Back to top</a></p>
+      </footer>
+    </div>
+
+    <script>
+      const buttons = document.querySelectorAll("[data-lang]");
+      const sections = document.querySelectorAll("[data-lang-section]");
+      const headingSuffix = document.getElementById("support-heading-suffix");
+      const titleEl = document.querySelector("title");
+      const storageKey = "support.lang";
+
+      function applyLang(lang) {
+        const langCode = lang === "en" ? "en" : "ja";
+        document.documentElement.lang = langCode;
+        sections.forEach((section) => {
+          section.hidden = section.id !== `support-${langCode}`;
+        });
+        buttons.forEach((button) => {
+          const active = button.dataset.lang === langCode;
+          button.setAttribute("aria-pressed", String(active));
+          if (active) {
+            const suffix = button.dataset.suffix || "Support";
+            if (headingSuffix) headingSuffix.textContent = suffix;
+            if (titleEl) {
+              const nextTitle = button.dataset.title || `Classroom-Finder ${suffix}`;
+              titleEl.textContent = nextTitle;
+            }
+          }
+        });
+      }
+
+      function switchLang(lang) {
+        const langCode = lang === "en" ? "en" : "ja";
+        if (history.replaceState) {
+          history.replaceState(null, "", `#lang=${langCode}`);
+        } else {
+          location.hash = `lang=${langCode}`;
+        }
+        try {
+          localStorage.setItem(storageKey, langCode);
+        } catch (_err) {
+          /* ignore */
+        }
+        applyLang(langCode);
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => switchLang(button.dataset.lang));
+      });
+
+      (function initLang() {
+        let initial = "ja";
+        const hashMatch = location.hash.match(/lang=(ja|en)/i);
+        if (hashMatch) {
+          initial = hashMatch[1];
+        } else {
+          try {
+            initial = localStorage.getItem(storageKey) || initial;
+          } catch (_err) {
+            initial = initial;
+          }
+        }
+        applyLang(initial);
+        if (!hashMatch && history.replaceState) {
+          history.replaceState(null, "", `#lang=${initial}`);
+        }
+      })();
+    </script>
+  </body>
+</html>

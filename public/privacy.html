@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Classroom-Finder プライバシーポリシー</title>
+    <meta name="description" content="Classroom-Finder 拡張機能のプライバシーポリシー (日本語・英語)" />
+    <link rel="alternate" hreflang="ja" href="#privacy-ja" />
+    <link rel="alternate" hreflang="en" href="#privacy-en" />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Inter", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+        line-height: 1.7;
+        --brand-primary: #2563eb;
+        --brand-secondary: #1d4ed8;
+        --brand-accent: #eff6ff;
+        --text-main: #1f2937;
+        --text-muted: #4b5563;
+        --border-soft: rgba(29, 78, 216, 0.18);
+        --shadow-soft: 0 28px 48px rgba(37, 99, 235, 0.16);
+        background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 55%, #eef2ff 100%);
+        color: var(--text-main);
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        padding: 2.5rem 1.5rem 4rem;
+        background: inherit;
+      }
+      .page-wrap {
+        max-width: 980px;
+        width: 100%;
+        background: #ffffff;
+        border-radius: 28px;
+        box-shadow: var(--shadow-soft);
+        border: 1px solid var(--border-soft);
+        overflow: hidden;
+      }
+      header {
+        padding: 3.75rem 3.25rem 2.4rem;
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.96), rgba(30, 64, 175, 0.88));
+        color: #ffffff;
+        position: relative;
+      }
+      header::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.24), transparent 45%), radial-gradient(circle at 80% 25%, rgba(96, 165, 250, 0.35), transparent 55%), radial-gradient(circle at 65% 82%, rgba(59, 130, 246, 0.18), transparent 62%);
+        pointer-events: none;
+      }
+      header h1 {
+        margin: 0;
+        font-size: clamp(2.1rem, 4vw, 3rem);
+        letter-spacing: 0.015em;
+        position: relative;
+        z-index: 1;
+      }
+      #heading-suffix {
+        font-weight: 500;
+        margin-left: 0.4rem;
+      }
+      .last-updated,
+      .intro-lead {
+        position: relative;
+        z-index: 1;
+      }
+      .last-updated {
+        margin-top: 0.85rem;
+        font-size: 1.05rem;
+        opacity: 0.9;
+        color: rgba(255, 255, 255, 0.92);
+      }
+      .intro-lead {
+        margin-top: 1.75rem;
+        max-width: 700px;
+        font-size: 1.05rem;
+        line-height: 1.75;
+        opacity: 0.95;
+        color: rgba(255, 255, 255, 0.95);
+      }
+      nav.lang-switcher {
+        display: flex;
+        gap: 1rem;
+        padding: 1.6rem 3.25rem 0.75rem;
+        background: linear-gradient(180deg, rgba(37, 99, 235, 0.12), transparent);
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        row-gap: 0.75rem;
+      }
+      .lang-switcher button {
+        padding: 0.55rem 1.35rem;
+        border-radius: 999px;
+        border: 1px solid rgba(37, 99, 235, 0.28);
+        background: rgba(255, 255, 255, 0.85);
+        cursor: pointer;
+        font: inherit;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        color: var(--text-main);
+      }
+      .lang-switcher button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 24px rgba(37, 99, 235, 0.2);
+      }
+      .lang-switcher button[aria-pressed="true"] {
+        background: var(--brand-primary);
+        color: #ffffff;
+        border-color: var(--brand-secondary);
+        box-shadow: 0 18px 32px rgba(37, 99, 235, 0.28);
+      }
+      .lang-switcher button:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, 0.45);
+        outline-offset: 2px;
+      }
+      main {
+        padding: 3rem 3.25rem 3.75rem;
+        background: linear-gradient(180deg, rgba(239, 246, 255, 0.55), #ffffff 35%);
+      }
+      section {
+        margin-bottom: 3rem;
+        padding: 2.25rem 2rem;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(37, 99, 235, 0.12);
+        border-radius: 20px;
+        box-shadow: 0 16px 36px rgba(37, 99, 235, 0.08);
+      }
+      section:last-of-type {
+        margin-bottom: 0;
+      }
+      section h2 {
+        margin-top: 0;
+        font-size: 1.45rem;
+        color: var(--brand-secondary);
+        letter-spacing: 0.01em;
+      }
+      section h2::after {
+        content: "";
+        display: block;
+        margin-top: 0.45rem;
+        width: 56px;
+        height: 3px;
+        background: linear-gradient(90deg, var(--brand-primary), rgba(37, 99, 235, 0));
+        border-radius: 999px;
+      }
+      p,
+      li {
+        color: var(--text-muted);
+      }
+      ul,
+      ol {
+        padding-left: 1.5rem;
+      }
+      a {
+        color: var(--brand-secondary);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .callout-grid {
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        margin: 1.3rem 0 1.6rem;
+      }
+      .callout-card {
+        background: var(--brand-accent);
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        border-radius: 16px;
+        padding: 1rem 1.1rem;
+        box-shadow: 0 12px 24px rgba(37, 99, 235, 0.08);
+      }
+      .callout-card h3 {
+        margin: 0 0 0.5rem;
+        font-size: 1.05rem;
+        color: var(--brand-secondary);
+      }
+      footer {
+        padding: 1.85rem 3.25rem 2.6rem;
+        background: rgba(37, 99, 235, 0.08);
+        border-top: 1px solid rgba(37, 99, 235, 0.16);
+        font-size: 0.95rem;
+      }
+      footer a {
+        font-weight: 600;
+      }
+      @media (max-width: 720px) {
+        body {
+          padding: 1.75rem 1.25rem 3.25rem;
+        }
+        .page-wrap {
+          border-radius: 22px;
+        }
+        header,
+        nav.lang-switcher,
+        main,
+        footer {
+          padding-left: 1.5rem;
+          padding-right: 1.5rem;
+        }
+        nav.lang-switcher {
+          padding-top: 1.2rem;
+          gap: 0.85rem;
+        }
+        section {
+          padding: 1.9rem 1.4rem;
+        }
+      }
+
+      @media (max-width: 540px) {
+        body {
+          padding: 1.35rem 0.95rem 2.6rem;
+        }
+        header,
+        nav.lang-switcher,
+        main,
+        footer {
+          padding-left: 1.2rem;
+          padding-right: 1.2rem;
+        }
+        header {
+          padding-top: 3rem;
+          padding-bottom: 2rem;
+        }
+        header h1 {
+          font-size: clamp(1.8rem, 7vw, 2.4rem);
+        }
+        .intro-lead {
+          font-size: 0.98rem;
+          margin-top: 1.45rem;
+        }
+        nav.lang-switcher {
+          gap: 0.65rem;
+          padding-top: 1.05rem;
+        }
+        .lang-switcher button {
+          flex: 1 1 160px;
+          text-align: center;
+        }
+        section {
+          padding: 1.6rem 1.1rem;
+          margin-bottom: 2.4rem;
+        }
+        .callout-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 360px) {
+        body {
+          padding: 1.1rem 0.75rem 2.4rem;
+        }
+        header,
+        nav.lang-switcher,
+        main,
+        footer {
+          padding-left: 1rem;
+          padding-right: 1rem;
+        }
+        .lang-switcher button {
+          flex: 1 1 140px;
+          padding: 0.5rem 1rem;
+        }
+        section {
+          padding: 1.45rem 1rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-wrap">
+      <a id="top" href="#main" style="position: absolute; left: -999px">Skip to content</a>
+      <header>
+        <h1
+          >Classroom-Finder <br />
+          <span id="heading-suffix">プライバシーポリシー</span></h1
+        >
+        <p class="last-updated">最終更新日 / Last Updated: 2025-10-07</p>
+        <p class="intro-lead"> Classroom-Finder は Google Classroom の投稿・コースを高速検索するための Chrome 拡張機能です。本ポリシーでは、取得するデータ、利用目的、ユーザーが管理できる選択肢を明確に示します。 </p>
+      </header>
+
+      <nav aria-label="Language switcher" class="lang-switcher">
+        <button type="button" data-lang="ja" data-title="Classroom-Finder プライバシーポリシー" data-suffix="プライバシーポリシー" aria-pressed="true">日本語</button>
+        <button type="button" data-lang="en" data-title="Classroom-Finder Privacy Policy" data-suffix="Privacy Policy" aria-pressed="false">English</button>
+      </nav>
+
+      <main id="main">
+        <section id="privacy-ja" lang="ja" data-lang-section>
+          <div class="callout-grid">
+            <div class="callout-card">
+              <h3>取得範囲</h3>
+              <p>Classroom API の読み取りスコープのみ（コース／お知らせ）。</p>
+            </div>
+            <div class="callout-card">
+              <h3>保存場所</h3>
+              <p>端末のブラウザ内（IndexedDB / chrome.storage）。開発者サーバー送信なし。</p>
+            </div>
+            <div class="callout-card">
+              <h3>利用目的</h3>
+              <p>投稿検索とナビゲーション支援のみ。広告・販売・第三者提供は不実施。</p>
+            </div>
+          </div>
+
+          <h2>1. このポリシーについて</h2>
+          <p>本プライバシーポリシーは、Chrome 拡張機能「Classroom-Finder」（以下「本拡張」）が Google Classroom のデータをどのように取り扱い、ユーザーのプライバシーを保護するかを説明するものです。本拡張は個人で運営され、Google LLC またはその関連会社とは提携していません。</p>
+
+          <h2>2. 収集・利用する情報</h2>
+          <ul>
+            <li>Google Classroom API を通じて取得するコース情報（コース名、ID、担当教員名など）</li>
+            <li>各コースのストリーム投稿・お知らせ（本文、タイムスタンプ、添付ファイルのメタデータ）</li>
+            <li>本拡張が内部で生成する検索用インデックスおよびユーザー設定（ブラウザの IndexedDB および chrome.storage に保存）</li>
+          </ul>
+          <p>これらの情報は、Chrome の <code>chrome.identity</code> API を利用し、ユーザーが明示的に許可した OAuth スコープ（<code>https://www.googleapis.com/auth/classroom.courses.readonly</code> および <code>https://www.googleapis.com/auth/classroom.announcements.readonly</code>）の範囲内で取得します。</p>
+
+          <h2>3. 利用目的</h2>
+          <p>取得した情報は、Google Classroom 上の投稿やコースを高速に検索・ナビゲーションするためだけに使用します。広告配信、トラッキング、プロファイリング、第三者への販売・共有には一切利用しません。</p>
+
+          <h2>4. 法的根拠</h2>
+          <p>EU/EEA 居住者に対しては、本人の同意または正当な利益に基づいて処理します。必要に応じて同意はいつでも取り消すことができ、処理の停止を求める権利があります。</p>
+
+          <h2>5. 保管場所と期間</h2>
+          <p>すべてのデータはユーザーのブラウザ内（IndexedDB 等）にのみ保存され、開発者サーバーや第三者のサーバーには送信されません。データはユーザーが削除するまで保持されます。以下の方法で削除できます。</p>
+          <ul>
+            <li>Chrome の設定から本拡張をアンインストールする</li>
+            <li>Chrome の拡張データをクリアする（<code>chrome://settings/siteData</code> 等）</li>
+            <li>Google アカウントの「アカウントへのアクセスを許可したアプリ」から本拡張のアクセス権を取り消す</li>
+          </ul>
+
+          <h2>6. 第三者提供および国際移転</h2>
+          <p>本拡張は取得した Classroom データを第三者（開発者を含む）と共有せず、クラウドサーバーにも送信しません。よって国際的なデータ移転も発生しません。</p>
+
+          <h2>7. 安全管理措置</h2>
+          <ul>
+            <li>HTTPS 通信のみを利用し、<code>classroom.googleapis.com</code> への読み取り専用 API コールに限定</li>
+            <li>Chrome Web Store マニフェストで不要なホスト権限・メソッドを付与しない設計</li>
+            <li>ブラウザ内保存データは Chrome のサンドボックス機構により保護され、開発者は直接アクセスできません</li>
+          </ul>
+
+          <h2>8. ユーザーの権利</h2>
+          <p>ユーザーはいつでもデータの閲覧・削除・同期停止が可能です。EU/EEA 居住者は GDPR に基づくアクセス権・訂正権・削除権・処理制限権・異議申立権を有し、米カリフォルニア州居住者は CCPA/CPRA に基づく開示・削除・オプトアウトの権利を有します。権利行使や問い合わせは下記連絡先までご連絡ください。</p>
+
+          <h2>9. 児童・生徒のプライバシー</h2>
+          <p>本拡張は教育機関での利用を想定していますが、児童生徒の個人情報を開発者が収集・保管・再配布することはありません。教育機関や保護者は、自組織の方針に基づき利用の可否をご判断ください。</p>
+
+          <h2>10. Google API Services ポリシーの遵守</h2>
+          <p>本拡張は Google API Services User Data Policy（特に Limited Use 要件）に準拠し、受領したデータを本拡張の機能提供以外の目的で使用しません。</p>
+
+          <h2>11. 変更について</h2>
+          <p>本ポリシーを改定する場合は、最新版を本ページに掲載し「最終更新日」を更新します。重要な変更がある場合は Chrome ウェブストアのリリースノート等で通知します。</p>
+
+          <h2>12. お問い合わせ</h2>
+          <p>
+            本ポリシーまたはデータの取り扱いに関する質問・権利行使の要請は、以下のメールアドレスまでご連絡ください。サポート情報や FAQ は
+            <a href="support.html">サポートページ</a>でも案内しています。
+          </p>
+          <p><a href="mailto:devryuya2007@gmail.com">devryuya2007@gmail.com</a></p>
+        </section>
+
+        <section id="privacy-en" lang="en" data-lang-section hidden>
+          <div class="callout-grid">
+            <div class="callout-card">
+              <h3>Scope</h3>
+              <p>Read-only Classroom API scopes (courses and announcements).</p>
+            </div>
+            <div class="callout-card">
+              <h3>Storage</h3>
+              <p>All data stays on the user’s browser (IndexedDB / chrome.storage). No developer servers.</p>
+            </div>
+            <div class="callout-card">
+              <h3>Purpose</h3>
+              <p>Used solely for faster search and navigation. No ads, sales, or third-party sharing.</p>
+            </div>
+          </div>
+
+          <h2>1. About This Policy</h2>
+          <p>This privacy policy explains how the Chrome extension “Classroom-Finder” (the “Extension”) processes Google Classroom data and protects user privacy. The Extension is operated by an independent developer and is not affiliated with Google LLC or its affiliates.</p>
+
+          <h2>2. Data We Collect and Use</h2>
+          <ul>
+            <li>Course metadata retrieved via the Google Classroom API (course name, ID, instructor name, etc.)</li>
+            <li>Stream announcements for enrolled courses (content, timestamps, attachment metadata)</li>
+            <li>Local search indexes and preference data stored in the browser (IndexedDB and chrome.storage)</li>
+          </ul>
+          <p>All data is obtained through Chrome’s <code>chrome.identity</code> API using the OAuth scopes expressly granted by the user (<code>https://www.googleapis.com/auth/classroom.courses.readonly</code> and <code>https://www.googleapis.com/auth/classroom.announcements.readonly</code>).</p>
+
+          <h2>3. Purpose of Processing</h2>
+          <p>The collected information is used solely to help users search and navigate their Google Classroom content more efficiently. It is never used for advertising, tracking, profiling, or sold/shared with third parties.</p>
+
+          <h2>4. Legal Bases</h2>
+          <p>For users located in the EU/EEA, processing is based on user consent or the Extension’s legitimate interests. Consent can be withdrawn at any time, and you may request restriction or termination of processing.</p>
+
+          <h2>5. Storage Location and Retention</h2>
+          <p>All data remains on the user’s device (IndexedDB, chrome.storage). No data is transmitted to the developer’s servers or any third party. Users can delete the data at any time by uninstalling the extension, clearing extension storage, or revoking the extension’s access in their Google Account settings.</p>
+
+          <h2>6. Sharing and International Transfers</h2>
+          <p>The Extension does not share Classroom data with any third party and does not send it to cloud services; therefore, no international data transfer occurs.</p>
+
+          <h2>7. Security Measures</h2>
+          <ul>
+            <li>API calls are restricted to HTTPS requests against <code>classroom.googleapis.com</code> and limited to read-only HTTP methods.</li>
+            <li>The manifest is configured with the minimum required permissions and host access.</li>
+            <li>Stored data is handled by Chrome’s sandboxed storage; the developer cannot access it directly.</li>
+          </ul>
+
+          <h2>8. Your Rights</h2>
+          <p>Users may view, delete, or stop syncing their data at any time. Residents of the EU/EEA have rights under the GDPR (access, rectification, erasure, restriction, objection). California residents have rights under the CCPA/CPRA (access, deletion, opt-out). To exercise these rights, contact the email address listed below.</p>
+
+          <h2>9. Children and Students</h2>
+          <p>The Extension is intended to assist educators and students within Google Classroom. The developer does not collect, store, or redistribute student information. Schools and guardians should ensure usage complies with their policies.</p>
+
+          <h2>10. Compliance with Google API Services Policy</h2>
+          <p>The Extension complies with the Google API Services User Data Policy, including the Limited Use requirements. Data received from Google APIs is used only to provide the Extension’s functionality.</p>
+
+          <h2>11. Changes to This Policy</h2>
+          <p>Any updates to this policy will be posted on this page with an updated “Last Updated” date. Material changes will also be announced through the Chrome Web Store release notes or similar channels.</p>
+
+          <h2>12. Contact</h2>
+          <p>
+            For questions or requests regarding this policy or your data, please contact us using the email below. Additional FAQs are available on the
+            <a href="support.html">support page</a>.
+          </p>
+          <p><a href="mailto:devryuya2007@gmail.com">devryuya2007@gmail.com</a></p>
+        </section>
+      </main>
+
+      <footer>
+        <p><a href="#top">トップへ戻る / Back to top</a></p>
+      </footer>
+    </div>
+
+    <script>
+      const buttons = document.querySelectorAll("[data-lang]");
+      const sections = document.querySelectorAll("[data-lang-section]");
+      const headingSuffix = document.getElementById("heading-suffix");
+      const titleEl = document.querySelector("title");
+      const storageKey = "privacy.lang";
+
+      function applyLang(lang) {
+        const langCode = lang === "en" ? "en" : "ja";
+        document.documentElement.lang = langCode;
+        sections.forEach((section) => {
+          section.hidden = section.id !== `privacy-${langCode}`;
+        });
+        buttons.forEach((button) => {
+          const active = button.dataset.lang === langCode;
+          button.setAttribute("aria-pressed", String(active));
+          if (active) {
+            const suffix = button.dataset.suffix || "Privacy Policy";
+            if (headingSuffix) headingSuffix.textContent = suffix;
+            if (titleEl) {
+              const base = button.dataset.title || `Classroom-Finder ${suffix}`;
+              titleEl.textContent = base;
+            }
+          }
+        });
+      }
+
+      function switchLang(lang) {
+        const langCode = lang === "en" ? "en" : "ja";
+        if (history.replaceState) {
+          history.replaceState(null, "", `#lang=${langCode}`);
+        } else {
+          location.hash = `lang=${langCode}`;
+        }
+        try {
+          localStorage.setItem(storageKey, langCode);
+        } catch (_err) {
+          /* ignore private mode */
+        }
+        applyLang(langCode);
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => switchLang(button.dataset.lang));
+      });
+
+      (function initLang() {
+        let initial = "ja";
+        const hashMatch = location.hash.match(/lang=(ja|en)/i);
+        if (hashMatch) {
+          initial = hashMatch[1];
+        } else {
+          try {
+            initial = localStorage.getItem(storageKey) || initial;
+          } catch (_err) {
+            initial = initial;
+          }
+        }
+        applyLang(initial);
+        if (!hashMatch && history.replaceState) {
+          history.replaceState(null, "", `#lang=${initial}`);
+        }
+      })();
+    </script>
+  </body>
+</html>
