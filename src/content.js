@@ -511,33 +511,84 @@ const STREAM_DB_NAME_BASE = "gcx-stream";
 const STREAM_DB_VERSION = 1;
 const STREAM_STORE_NAME = "posts";
 
-function getClassroomAccountKey() {
-  try {
-    const url = new URL(window.location.href);
-    const authuserParam = url.searchParams.get("authuser");
-    if (authuserParam && /^\d+$/.test(authuserParam)) {
-      return `u${authuserParam}`;
+/**
+ * アカウント情報から DB 名などをまとめて作るお助けクラス。
+ * 「とりあえず関数を並べる」スタイルだと初心者は迷子になるから、
+ * オブジェクト指向っぽく１か所に集めておくよ。
+ */
+class AccountIdentityHelper {
+  /**
+   * URL から authuser インデックスを読み取って、`u0` みたいな基本キーを作る。
+   * 失敗したら `u0` に戻してあげるから安心してね。
+   */
+  static getIndexKey() {
+    try {
+      const url = new URL(window.location.href);
+      const authuserParam = url.searchParams.get("authuser");
+      if (authuserParam && /^\d+$/.test(authuserParam)) {
+        return `u${authuserParam}`;
+      }
+      const pathMatch = url.pathname.match(/\/u\/(\d+)(?:\/|$)/);
+      if (pathMatch && pathMatch[1]) {
+        return `u${pathMatch[1]}`;
+      }
+    } catch (err) {
+      console.debug("[GCX] account key detection failed", err);
     }
-    const pathMatch = url.pathname.match(/\/u\/(\d+)(?:\/|$)/);
-    if (pathMatch && pathMatch[1]) {
-      return `u${pathMatch[1]}`;
-    }
-  } catch (err) {
-    console.debug("[GCX] account key detection failed", err);
+    return "u0";
   }
-  return "u0";
+
+  /**
+   * Classroom が教えてくれる GAIA ID やメールをハッシュ化して指紋を作る。
+   * そのままだと個人情報が丸見えだから、hashString でグチャッと混ぜて
+   * プライバシーを守る感じだよ。
+   */
+  static getFingerprint() {
+    const gaiaId = getClassroomGaiaId();
+    if (gaiaId) {
+      return `g${hashString(gaiaId)}`;
+    }
+    const email = getClassroomAccountEmail();
+    if (email) {
+      return `m${hashString(email)}`;
+    }
+    return "anon";
+  }
+
+  /**
+   * 最終的なキーを `u0-gxxxx` みたいな形で返す。
+   * インデックスだけじゃ別アカと判別できなかったから、
+   * 指紋をくっつけて別 DB を使わせるのが狙い。
+   */
+  static getCompositeKey() {
+    const indexKey = this.getIndexKey();
+    const fingerprint = this.getFingerprint();
+    return `${indexKey}-${fingerprint}`;
+  }
+
+  /**
+   * authuser の数値部分だけを取り出して number にする便利関数。
+   * エラーになったら 0 扱いでいいよ、っていう初心者向け安全設計。
+   */
+  static getIndexNumber() {
+    const rawKey = this.getCompositeKey();
+    const match = /^u(\d+)/.exec(rawKey);
+    if (match) {
+      const value = Number.parseInt(match[1], 10);
+      if (Number.isInteger(value) && value >= 0) {
+        return value;
+      }
+    }
+    return 0;
+  }
+}
+
+function getClassroomAccountKey() {
+  return AccountIdentityHelper.getCompositeKey();
 }
 
 function getAccountIndex() {
-  const key = getClassroomAccountKey();
-  const match = /^u(\d+)$/.exec(key);
-  if (match) {
-    const value = Number.parseInt(match[1], 10);
-    if (Number.isInteger(value) && value >= 0) {
-      return value;
-    }
-  }
-  return 0;
+  return AccountIdentityHelper.getIndexNumber();
 }
 
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
@@ -624,6 +675,7 @@ function getAccountHint() {
     index: getAccountIndex(),
     gaiaId: getClassroomGaiaId(),
     email: getClassroomAccountEmail(),
+    fingerprint: AccountIdentityHelper.getFingerprint(),
   };
 }
 

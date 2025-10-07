@@ -81,6 +81,7 @@ async function resolveAccountFromHint(accountHint) {
 }
 
 let lastAccountId = null;
+let lastAccountFingerprint = null;
 
 async function invalidateAccountToken(account) {
   if (!account?.id) return;
@@ -107,6 +108,16 @@ async function invalidateAccountToken(account) {
 }
 
 async function getAuthToken({ interactive = false, accountHint } = {}) {
+  if (accountHint?.fingerprint) {
+    if (lastAccountFingerprint && accountHint.fingerprint !== lastAccountFingerprint) {
+      // アカウントを切り替えたサインだから、古いトークンを全部吹き飛ばして
+      // Chrome に再認証してもらう。初心者はここで毎回クリアしそうだけど、
+      // fingerprint が変わった時だけに絞ってあるから安心して！
+      clearAllCachedTokens();
+      lastAccountId = null;
+    }
+    lastAccountFingerprint = accountHint.fingerprint;
+  }
   let accountParam;
   let resolvedAccount = null;
   if (accountHint) {
