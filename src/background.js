@@ -147,14 +147,16 @@ async function invalidateAccountToken(account) {
   try {
     await new Promise((resolve) => {
       chrome.identity.getAuthToken(
-        { interactive: true, account: { id: account.id } },
+        { interactive: false, account: { id: account.id } }, // interactive: false に変更
         async (token) => {
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError) {
+            console.debug("[GCX] Could not get token to invalidate (expected)");
             resolve();
             return;
           }
           if (token) {
+            console.log("[GCX] Removing cached token for account:", account.id);
             await removeCachedToken(token);
           }
           resolve();
@@ -212,6 +214,7 @@ async function getAuthToken({ interactive = false, accountHint } = {}) {
       if (interactive) {
         console.log("[GCX] 🔓 Requesting OAuth token with INTERACTIVE mode");
         console.log("[GCX] Account:", resolvedAccount?.email || "default");
+        console.log("[GCX] This should show the OAuth consent screen");
       }
 
       chrome.identity.getAuthToken(details, (token) => {
@@ -260,6 +263,7 @@ async function removeCachedToken(token) {
 }
 
 async function clearAllCachedTokens() {
+  console.log("[GCX] 🧹 Starting to clear all cached tokens...");
   return new Promise((resolve) => {
     try {
       chrome.identity.clearAllCachedAuthTokens(() => {
@@ -271,7 +275,11 @@ async function clearAllCachedTokens() {
         } else {
           console.log("[GCX] ✓ Cleared all cached OAuth tokens");
         }
-        resolve();
+        // トークンクリア後、確実に反映されるまで少し待つ
+        setTimeout(() => {
+          console.log("[GCX] ✓ Token cache clear operation completed");
+          resolve();
+        }, 500); // 0.5秒待機
       });
     } catch (err) {
       console.warn("[GCX] clearAllCachedAuthTokens threw", err);

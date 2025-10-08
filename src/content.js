@@ -49,42 +49,26 @@ let lastAccountFingerprint = null; // アカウント切り替え検知用
 
 // Service Workerが起動していることを確認
 async function ensureServiceWorkerReady() {
-  const maxRetries = 10; // リトライ回数を増やす
+  const maxRetries = 10;
   for (let i = 0; i < maxRetries; i++) {
     try {
-      console.log(
-        `[GCX] 🏓 Pinging Service Worker (attempt ${i + 1}/${maxRetries})...`
-      );
+      // 初回のみログ表示
+      if (i === 0) {
+        console.log("[GCX] 🏓 Checking Service Worker...");
+      }
 
       const ready = await new Promise((resolve) => {
-        const timeoutId = setTimeout(() => resolve(false), 5000); // タイムアウトを5秒に延長
+        const timeoutId = setTimeout(() => resolve(false), 5000);
 
-        console.log("[GCX] 📤 Sending PING message to background...");
-        console.log("[GCX] 🔍 My Extension ID:", chrome.runtime.id);
         chrome.runtime.sendMessage(
           { type: "PING", extensionId: chrome.runtime.id },
           (response) => {
             clearTimeout(timeoutId);
-            console.log("[GCX] 📥 PING response received:");
-            console.log("[GCX] 🔍 Response keys:", Object.keys(response || {}));
-            console.log("[GCX] 🔍 Response.ok:", response?.ok);
-            console.log("[GCX] 🔍 Response.pong:", response?.pong);
-            console.log(
-              "[GCX] 🔍 Response.extensionName:",
-              response?.extensionName
-            );
-            console.log(
-              "[GCX] 🔍 Response.extensionId:",
-              response?.extensionId
-            );
-            console.log("[GCX] 🔍 Expected extension: Classroom-Finder");
-            console.log("[GCX] 🔍 Expected extension ID:", chrome.runtime.id);
 
             if (chrome.runtime.lastError) {
               const errorMsg = chrome.runtime.lastError.message;
-              console.log("[GCX] ⚠️ Service Worker ping failed:", errorMsg);
 
-              // Extension context invalidated エラーの場合
+              // 重大なエラーのみログ表示
               if (
                 errorMsg.includes("Extension context invalidated") ||
                 errorMsg.includes("Receiving end does not exist")
@@ -92,7 +76,6 @@ async function ensureServiceWorkerReady() {
                 console.error(
                   "[GCX] ❌ Extension was reloaded. Please reload this page!"
                 );
-                // UIに警告を表示
                 setTopbarPlaceholder(
                   "⚠️ 拡張機能が更新されました。ページを再読み込みしてください。"
                 );
@@ -103,20 +86,18 @@ async function ensureServiceWorkerReady() {
               response?.extensionName === "Classroom-Finder" &&
               response?.extensionId === chrome.runtime.id
             ) {
-              console.log(
-                "[GCX] ✓ Service Worker is ready (correct extension with correct ID)"
-              );
+              // 初回のみ成功ログ表示
+              if (i === 0) {
+                console.log("[GCX] ✓ Service Worker ready");
+              }
               resolve(true);
             } else if (response?.pong) {
-              console.warn(
-                "[GCX] ⚠️ Response from different extension or missing ID"
-              );
-              console.warn("[GCX] 🔍 Validation:", {
-                hasCorrectName: response?.extensionName === "Classroom-Finder",
-                hasCorrectId: response?.extensionId === chrome.runtime.id,
-                responseExtId: response?.extensionId,
-                myExtId: chrome.runtime.id,
-              });
+              // 異なる拡張機能からの応答（初回のみ警告）
+              if (i === 0) {
+                console.warn(
+                  "[GCX] ⚠️ Response from different extension, retrying..."
+                );
+              }
               resolve(false);
             } else {
               console.log("[GCX] ⚠️ Unexpected response:", response);
@@ -932,21 +913,21 @@ function getWizGlobalData() {
 
 function getClassroomGaiaId() {
   const data = getWizGlobalData();
-  // デバッグレベルに変更（通常は非表示）
-  console.debug("[GCX] Looking for GAIA ID in WizGlobalData:", data);
+  // ログ削除: 繰り返し実行されるため大量のログを防ぐ
 
   const candidateKeys = ["S06Grb", "W3Yyqf", "WZsZ1e", "Yllh3e"];
   if (data) {
     for (const key of candidateKeys) {
       const value = data[key];
       if (typeof value === "string" && /^\d{5,}$/.test(value)) {
-        console.log("[GCX] ✓ Found GAIA ID in key", key, ":", value);
+        // 見つかった時のみログ表示
+        console.log("[GCX] ✓ Found GAIA ID");
         return value;
       }
     }
     for (const [key, value] of Object.entries(data)) {
       if (typeof value === "string" && /^\d{5,}$/.test(value)) {
-        console.log("[GCX] ✓ Found GAIA ID in data key", key, ":", value);
+        console.log("[GCX] ✓ Found GAIA ID");
         return value;
       }
     }
@@ -954,14 +935,11 @@ function getClassroomGaiaId() {
   const metaId = document.querySelector('meta[name="og-profile-id"]');
   const metaValue = metaId?.getAttribute("content");
   if (metaValue && /^\d{5,}$/.test(metaValue.trim())) {
-    console.log("[GCX] ✓ Found GAIA ID in meta tag:", metaValue.trim());
+    console.log("[GCX] ✓ Found GAIA ID in meta tag");
     return metaValue.trim();
   }
-  // GAIA IDが見つからない場合（学校アカウントなどで正常）
-  // デバッグレベルに変更して通常は非表示
-  console.debug(
-    "[GCX] GAIA ID not found, using email/index for account matching"
-  );
+  // GAIA IDが見つからない場合は通常の動作（学校アカウント等で正常）
+  // ログ不要
   return null;
 }
 
@@ -1321,6 +1299,8 @@ async function syncStreamPosts(options = {}) {
           savedPosts.length,
           "posts from new account"
         );
+        // アカウント切り替え時は検索結果を即座に更新
+        rerunLastQuery();
       }
     }
 
@@ -1776,6 +1756,40 @@ function setupTopbarCheckInterval() {
   topbarCheckInterval = setInterval(checkTopbarPresence, 30000);
 }
 
+// URLの変化を監視してアカウント切り替えを検出
+let lastPathname = window.location.pathname;
+function setupAccountSwitchDetection() {
+  // URLの変化を監視（特に /u/X の部分）
+  const checkAccountSwitch = () => {
+    const currentPathname = window.location.pathname;
+    if (currentPathname !== lastPathname) {
+      const oldMatch = lastPathname.match(/\/u\/(\d+)/);
+      const newMatch = currentPathname.match(/\/u\/(\d+)/);
+      const oldIndex = oldMatch ? oldMatch[1] : "0";
+      const newIndex = newMatch ? newMatch[1] : "0";
+
+      if (oldIndex !== newIndex) {
+        console.log("[GCX] 🔄 URL changed, account switch detected!");
+        console.log("[GCX] Old index:", oldIndex, "→ New index:", newIndex);
+        lastPathname = currentPathname;
+
+        // アカウント切り替えを検出したら即座に同期
+        void syncStreamPosts({ source: "account-switch" }).catch((err) => {
+          console.error("[GCX] Account switch sync failed:", err);
+        });
+      } else {
+        lastPathname = currentPathname;
+      }
+    }
+  };
+
+  // 1秒ごとにURLをチェック（軽量な処理）
+  setInterval(checkAccountSwitch, 1000);
+
+  // popstateイベントでもチェック（戻る/進むボタン）
+  window.addEventListener("popstate", checkAccountSwitch);
+}
+
 // トップバーを維持しつつデータ同期を定期実行
 async function observe() {
   // 初回注入
@@ -1784,6 +1798,9 @@ async function observe() {
   // UI永続化の仕組みをセットアップ
   setupTopbarObserver();
   setupTopbarCheckInterval();
+
+  // アカウント切り替え検出をセットアップ
+  setupAccountSwitchDetection();
 
   // アカウント情報の初期化
   try {
@@ -1806,6 +1823,11 @@ async function observe() {
       console.log("[GCX] 📞 Calling clearAllAuthTokens()...");
       await clearAllAuthTokens();
       console.log("[GCX] ✓ clearAllAuthTokens() completed");
+
+      // トークンクリアが完全に反映されるまで少し待つ（学校アカウント対策）
+      console.log("[GCX] ⏳ Waiting for token cache to clear...");
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1秒待機
+      console.log("[GCX] ✓ Token cache should be cleared now");
 
       console.log("[GCX] 📞 Calling forceOAuthAuthentication()...");
       await forceOAuthAuthentication();
@@ -2413,10 +2435,20 @@ function renderSuggestions(results) {
 
 // IndexedDB からの差分同期後に、最後に入力したクエリで再検索するためのヘルパー
 function rerunLastQuery() {
-  if (!lastQuery || !fuse) {
+  if (!fuse) {
     return;
   }
-  renderSuggestions(collectTopMatches(lastQuery));
+  // クエリがある場合は再検索、ない場合はすべて表示
+  if (lastQuery) {
+    renderSuggestions(collectTopMatches(lastQuery));
+  } else {
+    // 検索ボックスが空の場合、最新の投稿を表示
+    const allPosts = fuse.getIndex().docs || [];
+    const limited = allPosts
+      .slice(0, SUGGESTION_LIMIT)
+      .map((item) => ({ item }));
+    renderSuggestions(limited);
+  }
 }
 
 // コンテンツスクリプト全体の初期化ルーチン
