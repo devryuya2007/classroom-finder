@@ -99,39 +99,59 @@ const ALLOWED_NAV_HOSTS = new Set(["classroom.google.com"]);
 
 // 注意: ensureStyles は CSS を注入するだけ。検索 UI 本体は createTopbar()/injectTopbar() で生成・挿入。
 function ensureStyles() {
-  const href = getExtensionURL(STYLE_PATH);
-  const existing = document.getElementById(STYLE_ID);
-  if (existing) {
-    const current =
-      existing instanceof HTMLLinkElement
-        ? existing.getAttribute("href")
-        : existing instanceof HTMLStyleElement
-        ? existing.dataset.origin
-        : null;
-    if (current === href) return;
-    existing.remove();
+  try {
+    const href = getExtensionURL(STYLE_PATH);
+    const existing = document.getElementById(STYLE_ID);
+    if (existing) {
+      const current =
+        existing instanceof HTMLLinkElement
+          ? existing.getAttribute("href")
+          : existing instanceof HTMLStyleElement
+          ? existing.dataset.origin
+          : null;
+      if (current === href) return;
+      existing.remove();
+    }
+
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.dataset.origin = href;
+    style.textContent = "/* [GCX] topbar styles loading... */";
+    document.head.appendChild(style);
+
+    fetch(href)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.text();
+      })
+      .then((css) => {
+        style.textContent = css;
+      })
+      .catch((error) => {
+        // Extension context が無効化されている場合は、エラーログを抑制
+        if (
+          error.message &&
+          error.message.includes("Extension context invalidated")
+        ) {
+          console.debug(
+            "[GCX] Extension context invalidated, skipping stylesheet load"
+          );
+        } else {
+          console.warn(
+            `[GCX] Failed to load stylesheet from ${STYLE_PATH}:`,
+            error.message
+          );
+        }
+        style.remove();
+      });
+  } catch (error) {
+    // getExtensionURL が失敗した場合（Extension context invalidated）
+    console.debug(
+      "[GCX] Cannot load styles, extension context may be invalidated"
+    );
   }
-
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.dataset.origin = href;
-  style.textContent = "/* [GCX] topbar styles loading... */";
-  document.head.appendChild(style);
-
-  fetch(href)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return response.text();
-    })
-    .then((css) => {
-      style.textContent = css;
-    })
-    .catch((error) => {
-      console.warn(`[GCX] Failed to load stylesheet from ${href}`, error);
-      style.remove();
-    });
 }
 
 // ===== Google Classroom API helper =====
@@ -203,19 +223,42 @@ async function bgFetch(request, attempt = 0) {
           if (runtimeError) {
             const message = runtimeError.message || "Extension runtime error";
 
-            // リトライ可能なエラー: コンテキスト無効化、メッセージチャンネルクローズ
+            // Extension context invalidated は特別扱い
+            if (message.includes("Extension context invalidated")) {
+              if (attempt < 2) {
+                // 3回ではなく2回のリトライに制限
+                const backoffMs = 500 * Math.pow(2, attempt);
+                console.warn(
+                  `[GCX] Extension context invalidated (retry ${
+                    attempt + 1
+                  }/2 after ${backoffMs}ms)`
+                );
+                setTimeout(() => {
+                  bgFetch(request, attempt + 1)
+                    .then(resolve)
+                    .catch(reject);
+                }, backoffMs);
+                return;
+              }
+              // リトライ失敗: ページリロードを促すエラー
+              reject(
+                new Error(
+                  "Extension context invalidated. Please reload the page."
+                )
+              );
+              return;
+            }
+
+            // その他のリトライ可能なエラー: メッセージチャンネルクローズ
             if (
               attempt < 3 &&
               typeof message === "string" &&
-              (message.includes("Extension context invalidated") ||
-                message.includes("message channel closed") ||
+              (message.includes("message channel closed") ||
                 message.includes("message port closed"))
             ) {
               const backoffMs = 500 * Math.pow(2, attempt); // 指数バックオフ: 500ms, 1s, 2s
               console.warn(
-                `[GCX] ${message} (retry ${
-                  attempt + 1
-                }/${3} after ${backoffMs}ms)`
+                `[GCX] ${message} (retry ${attempt + 1}/3 after ${backoffMs}ms)`
               );
               setTimeout(() => {
                 bgFetch(request, attempt + 1)
@@ -1519,17 +1562,48 @@ function observe() {
   // DOM 監視は不要。トップバー状態の維持と API 同期のみ行う。
   ensureTopbar();
   void syncStreamPosts().catch((err) => {
+    // Extension context invalidated の場合は、ページリロードを促す
+    if (
+      err &&
+      err.message &&
+      err.message.includes("Extension context invalidated")
+    ) {
+      console.warn(
+        "[GCX] Extension context invalidated. Please reload the page."
+      );
+      setTopbarPlaceholder(
+        "拡張機能が更新されました。ページをリロードしてください。"
+      );
+      return;
+    }
+
     console.warn(
       "[GCX] Periodic fetch failed. API mode=false とみなします",
       err
     );
     flashRefreshError(err);
   });
+
   // 定期的にデータを同期（5 分ごと）
   if (POLL_INTERVAL_MS > 0) {
     setInterval(() => {
       ensureTopbar();
       void syncStreamPosts().catch((err) => {
+        // Extension context invalidated の場合は、ページリロードを促す
+        if (
+          err &&
+          err.message &&
+          err.message.includes("Extension context invalidated")
+        ) {
+          console.warn(
+            "[GCX] Extension context invalidated. Please reload the page."
+          );
+          setTopbarPlaceholder(
+            "拡張機能が更新されました。ページをリロードしてください。"
+          );
+          return;
+        }
+
         console.warn(
           "[GCX] Periodic fetch failed. API mode=false とみなします",
           err

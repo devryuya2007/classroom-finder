@@ -363,10 +363,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             error: String((error && error.message) || error),
           });
         }
-        return;
-      }
-
-      if (msg.type === "GCX_IDENTITY_LIST") {
+        // return を削除（sendResponse 後に async 関数が終了するのを防ぐ）
+      } else if (msg.type === "GCX_IDENTITY_LIST") {
         try {
           const accounts = await listIdentityAccountsWithProfiles();
           sendResponse({ ok: true, accounts });
@@ -377,10 +375,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             error: String((error && error.message) || error),
           });
         }
-        return;
-      }
-
-      if (msg.type === "GCX_GOOGLE_FETCH") {
+        // return を削除
+      } else if (msg.type === "GCX_GOOGLE_FETCH") {
         try {
           console.debug("[GCX] Processing GOOGLE_FETCH request");
           const res = await googleFetch(msg.request || {}, msg.accountHint);
@@ -402,11 +398,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             error: String((error && error.message) || error),
           });
         }
-        return;
+        // return を削除
+      } else {
+        // Unknown message type
+        sendResponse({ ok: false, error: "Unknown message type" });
       }
-
-      // Unknown message type
-      sendResponse({ ok: false, error: "Unknown message type" });
     } catch (error) {
       console.error("[GCX] background message handler error", error);
       sendResponse({
