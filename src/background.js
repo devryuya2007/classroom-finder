@@ -4,12 +4,145 @@
 const CLASSROOM_BASE = "https://classroom.googleapis.com/v1";
 // Restrict proxy fetches to Classroom API only (must match manifest host_permissions)
 const ALLOWED_API_HOSTS = new Set(["classroom.googleapis.com"]);
+// OAuth 設定は manifest.json とリンクしているので、ここで読み込んでおく。
+// 初心者ポイント: manifest を変更したら、ここも自動で反映される仕組みだよ。
+const manifest = chrome.runtime.getManifest();
+const OAUTH2_CLIENT_ID = manifest?.oauth2?.client_id || null;
+const OAUTH2_SCOPES = Array.isArray(manifest?.oauth2?.scopes)
+  ? [...manifest.oauth2.scopes]
+  : [];
+const OAUTH_REDIRECT_URI = `https://${chrome.runtime.id}.chromiumapp.org/`;
+const OAUTH_SCOPE_HASH = (() => {
+  const sorted = [...OAUTH2_SCOPES].sort();
+  return createSimpleHash(sorted.join(" ") || "default-scope");
+})();
 const EMAIL_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/i;
 const CHANNEL_TOKEN_KEY = "gcxMessageChannelToken";
 const CHANNEL_TOKEN_LENGTH = 64;
 
 let channelTokenCache = null;
 let channelTokenLoading = null;
+// タブ ID + アカウント ID + スコープごとにトークンを分けて保存する箱。
+// 「上書きして別人のデータが見える」事故をここでガードするよ。
+const tokenCache = new Map();
+// セッション（タブ）ごとの状態管理。どの指紋/アカウントを握っているかを記録する。
+const sessionStateStore = new Map();
+
+// 超シンプルなハッシュ関数（djb2 風）。scope の組み合わせを短いキーにする用途だよ。
+function createSimpleHash(input) {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 33) ^ input.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function ensureSessionKey(sessionKey) {
+  return sessionKey || "sw::global";
+}
+
+function ensureSessionState(sessionKey) {
+  const key = ensureSessionKey(sessionKey);
+  if (!sessionStateStore.has(key)) {
+    sessionStateStore.set(key, {
+      lastAccountId: null,
+      lastFingerprint: null,
+      hasActiveToken: false,
+    });
+  }
+  return sessionStateStore.get(key);
+}
+
+function resetSessionState(sessionKey) {
+  const state = ensureSessionState(sessionKey);
+  state.lastAccountId = null;
+  state.hasActiveToken = false;
+}
+
+function buildTokenStoreKey(sessionKey, accountId) {
+  const normalizedSession = ensureSessionKey(sessionKey);
+  const normalizedAccount = accountId || "default";
+  return `${normalizedSession}:${normalizedAccount}:${OAUTH_SCOPE_HASH}`;
+}
+
+function rememberToken(sessionKey, accountId, token) {
+  const key = buildTokenStoreKey(sessionKey, accountId);
+  tokenCache.set(key, {
+    token,
+    accountId: accountId || null,
+    sessionKey: ensureSessionKey(sessionKey),
+  });
+}
+
+function deleteTokenByValue(tokenValue) {
+  if (!tokenValue) return [];
+  const affectedSessions = new Set();
+  for (const [key, record] of tokenCache.entries()) {
+    if (record.token === tokenValue) {
+      tokenCache.delete(key);
+      affectedSessions.add(record.sessionKey);
+    }
+  }
+  return [...affectedSessions];
+}
+
+async function revokeAuthToken(token) {
+  if (!token) return;
+  const revokeUrl = `https://accounts.google.com/o/oauth2/revoke?token=${encodeURIComponent(
+    token
+  )}`;
+  try {
+    await fetch(revokeUrl, { method: "GET", mode: "cors" });
+  } catch (err) {
+    console.debug("[GCX] Token revoke request failed", err);
+  }
+}
+
+async function removeCachedToken(token, { revoke = false } = {}) {
+  if (!token) return;
+  const sessions = deleteTokenByValue(token);
+  sessions.forEach((sessionKey) => {
+    resetSessionState(sessionKey);
+  });
+  await new Promise((resolve) => {
+    try {
+      chrome.identity.removeCachedAuthToken({ token }, () => {
+        resolve();
+      });
+    } catch (_err) {
+      resolve();
+    }
+  });
+  if (revoke) {
+    await revokeAuthToken(token);
+  }
+}
+
+async function invalidateTokensForAccountId(accountId, { revoke = false } = {}) {
+  if (!accountId) return;
+  const tokensToDelete = [];
+  for (const record of tokenCache.values()) {
+    if (record.accountId === accountId) {
+      tokensToDelete.push(record.token);
+    }
+  }
+  for (const token of tokensToDelete) {
+    await removeCachedToken(token, { revoke });
+  }
+}
+
+async function forgetTokensForSession(sessionKey, { revoke = false } = {}) {
+  const normalizedKey = ensureSessionKey(sessionKey);
+  const tokensToDelete = [];
+  for (const record of tokenCache.values()) {
+    if (record.sessionKey === normalizedKey) {
+      tokensToDelete.push(record.token);
+    }
+  }
+  for (const token of tokensToDelete) {
+    await removeCachedToken(token, { revoke });
+  }
+}
 
 function generateChannelToken() {
   const array = new Uint8Array(CHANNEL_TOKEN_LENGTH / 2);
@@ -236,20 +369,17 @@ async function resolveAccountFromHint(accountHint) {
   return { account: null, accounts };
 }
 
-let lastAccountId = null;
-let lastAccountFingerprint = null;
-
 // アカウント別のトークンを無効化
-async function invalidateAccountToken(account) {
+async function invalidateAccountToken(account, { revoke = false } = {}) {
   if (!account?.id) return;
   try {
+    await invalidateTokensForAccountId(account.id, { revoke });
     await new Promise((resolve) => {
       chrome.identity.getAuthToken(
-        { interactive: true, account: { id: account.id } },
+        { interactive: false, account: { id: account.id } },
         async (token) => {
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError) {
-            console.debug("[GCX] Could not get token to invalidate (expected)");
             resolve();
             return;
           }
@@ -258,7 +388,7 @@ async function invalidateAccountToken(account) {
               "[GCX] 🗑️ Removing cached token for account:",
               account.email || account.id
             );
-            await removeCachedToken(token);
+            await removeCachedToken(token, { revoke });
           }
           resolve();
         }
@@ -270,37 +400,102 @@ async function invalidateAccountToken(account) {
 }
 
 // 全アカウントのトークンを無効化（アカウント切り替え時）
-async function invalidateAllAccountTokens() {
+async function invalidateAllAccountTokens({ revoke = false } = {}) {
   console.log("[GCX] 🗑️ Invalidating all account tokens...");
+  const cachedTokens = [...tokenCache.values()].map((record) => record.token);
+  tokenCache.clear();
+  for (const key of sessionStateStore.keys()) {
+    resetSessionState(key);
+  }
+  for (const token of cachedTokens) {
+    await removeCachedToken(token, { revoke });
+  }
   const accounts = await listIdentityAccounts();
   for (const account of accounts) {
-    await invalidateAccountToken(account);
+    await invalidateAccountToken(account, { revoke });
   }
   console.log("[GCX] ✓ All account tokens invalidated");
 }
 
-async function getAuthToken({ interactive = false, accountHint } = {}) {
-  // アカウント切り替えを検知
-  if (accountHint?.fingerprint) {
-    if (
-      lastAccountFingerprint &&
-      accountHint.fingerprint !== lastAccountFingerprint
-    ) {
-      console.log("[GCX] 🔄 Account switch detected in background!");
-      console.log("[GCX] Previous fingerprint:", lastAccountFingerprint);
-      console.log("[GCX] New fingerprint:", accountHint.fingerprint);
-
-      // 全アカウントのトークンを個別に無効化
-      await invalidateAllAccountTokens();
-
-      // さらに全キャッシュをクリア
-      await clearAllCachedTokens();
-
-      lastAccountId = null;
-      console.log("[GCX] ✓ Token invalidation completed");
-    }
-    lastAccountFingerprint = accountHint.fingerprint;
+// launchWebAuthFlow で「アカウント選択 + consent」を必ず踏ませる補助関数。
+// 初心者メモ: ここで prompt=select_account consent を付けておかないと、
+// Chrome が前回のアカウントを勝手に再利用してしまうよ。
+async function runInteractiveConsentFlow({
+  accountHint,
+  resolvedAccount,
+  sessionKey,
+}) {
+  if (!OAUTH2_CLIENT_ID || !OAUTH2_SCOPES.length) return;
+  const params = new URLSearchParams({
+    client_id: OAUTH2_CLIENT_ID,
+    redirect_uri: OAUTH_REDIRECT_URI,
+    response_type: "code",
+    access_type: "offline",
+    include_granted_scopes: "true",
+    prompt: "select_account consent",
+    scope: OAUTH2_SCOPES.join(" "),
+    state: `${ensureSessionKey(sessionKey)}:${Date.now()}`,
+  });
+  if (typeof accountHint?.index === "number") {
+    params.set("authuser", String(accountHint.index));
   }
+  const emailHint = normalizeEmail(
+    accountHint?.email || resolvedAccount?.email || ""
+  );
+  if (emailHint) {
+    params.set("login_hint", emailHint);
+  }
+
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  await new Promise((resolve, reject) => {
+    try {
+      chrome.identity.launchWebAuthFlow(
+        { url, interactive: true },
+        (redirectUrl) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (!redirectUrl) {
+            reject(new Error("Consent flow aborted"));
+            return;
+          }
+          resolve(redirectUrl);
+        }
+      );
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+async function getAuthToken({
+  interactive = false,
+  accountHint,
+  sessionKey,
+} = {}) {
+  const normalizedSessionKey = ensureSessionKey(sessionKey);
+  const sessionState = ensureSessionState(normalizedSessionKey);
+
+  const incomingFingerprint = accountHint?.fingerprint || null;
+  if (
+    incomingFingerprint &&
+    sessionState.lastFingerprint &&
+    incomingFingerprint !== sessionState.lastFingerprint
+  ) {
+    console.log("[GCX] 🔄 Account switch detected in background!");
+    console.log("[GCX] Previous fingerprint:", sessionState.lastFingerprint);
+    console.log("[GCX] New fingerprint:", incomingFingerprint);
+    await invalidateAllAccountTokens({ revoke: true });
+    await clearAllCachedTokens();
+    resetSessionState(normalizedSessionKey);
+    sessionState.lastFingerprint = incomingFingerprint;
+    console.log("[GCX] ✓ Token invalidation completed");
+  }
+  if (incomingFingerprint) {
+    sessionState.lastFingerprint = incomingFingerprint;
+  }
+
   let accountParam;
   let resolvedAccount = null;
 
@@ -313,12 +508,16 @@ async function getAuthToken({ interactive = false, accountHint } = {}) {
         "[GCX] 🎯 Using account for token:",
         resolvedAccount.email || resolvedAccount.id
       );
-
-      // 新しいアカウントに切り替わった場合、そのアカウントのトークンも無効化
-      if (resolvedAccount.id !== lastAccountId) {
-        console.log("[GCX] 🔄 Account ID changed, invalidating old token");
-        await invalidateAccountToken(resolvedAccount);
-        lastAccountId = resolvedAccount.id;
+      if (
+        sessionState.lastAccountId &&
+        sessionState.lastAccountId !== resolvedAccount.id
+      ) {
+        console.log("[GCX] 🔄 Account ID changed, clearing old session tokens");
+        await forgetTokensForSession(normalizedSessionKey, { revoke: true });
+        resetSessionState(normalizedSessionKey);
+        if (incomingFingerprint) {
+          sessionState.lastFingerprint = incomingFingerprint;
+        }
       }
     } else {
       console.warn("[GCX] ⚠️ Could not resolve account, using default");
@@ -326,66 +525,82 @@ async function getAuthToken({ interactive = false, accountHint } = {}) {
     }
   }
 
-  return new Promise((resolve, reject) => {
+  if (!interactive && !sessionState.hasActiveToken) {
+    console.log(
+      "[GCX] No cached token for session. Switching to interactive flow."
+    );
+    interactive = true;
+  }
+
+  if (interactive) {
+    await runInteractiveConsentFlow({
+      accountHint,
+      resolvedAccount,
+      sessionKey: normalizedSessionKey,
+    });
+  }
+
+  const token = await new Promise((resolve, reject) => {
     try {
       const details = { interactive };
       if (accountParam) {
         details.account = accountParam;
       }
 
-      if (interactive) {
-        console.log("[GCX] 🔓 Requesting OAuth token with INTERACTIVE mode");
-        console.log("[GCX] Account:", resolvedAccount?.email || "default");
-        console.log("[GCX] This should show the OAuth consent screen");
-      }
-
-      chrome.identity.getAuthToken(details, (token) => {
+      chrome.identity.getAuthToken(details, (value) => {
         if (chrome.runtime.lastError) {
           console.error(
             "[GCX] getAuthToken error:",
             chrome.runtime.lastError.message
           );
-          return reject(new Error(chrome.runtime.lastError.message));
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
         }
-        if (!token) {
+        if (!value) {
           console.error("[GCX] No token returned");
-          return reject(new Error("No token"));
+          reject(new Error("No token"));
+          return;
         }
-        if (resolvedAccount?.id) {
-          lastAccountId = resolvedAccount.id;
-        }
-
-        if (interactive) {
-          console.log(
-            "[GCX] ✓ Successfully obtained token via interactive auth"
-          );
-        } else {
-          console.log(
-            "[GCX] Successfully obtained token for account:",
-            resolvedAccount?.id || "default"
-          );
-        }
-
-        resolve(token);
+        resolve(value);
       });
     } catch (err) {
       reject(err);
     }
   });
-}
 
-async function removeCachedToken(token) {
-  return new Promise((resolve) => {
-    try {
-      chrome.identity.removeCachedAuthToken({ token }, () => resolve());
-    } catch (_err) {
-      resolve();
-    }
-  });
+  const accountInfo = {
+    id: resolvedAccount?.id || null,
+    email: resolvedAccount?.email || null,
+    fingerprint: incomingFingerprint || null,
+    sessionKey: normalizedSessionKey,
+    scopeKey: OAUTH_SCOPE_HASH,
+    accountKey: accountHint?.accountKey || null,
+  };
+
+  if (accountInfo.id) {
+    sessionState.lastAccountId = accountInfo.id;
+  }
+  sessionState.hasActiveToken = true;
+  rememberToken(normalizedSessionKey, accountInfo.id, token);
+
+  if (interactive) {
+    console.log("[GCX] ✓ Successfully obtained token via interactive auth");
+  } else {
+    console.log(
+      "[GCX] Successfully obtained token for account:",
+      accountInfo.id || "default"
+    );
+  }
+
+  return { token, account: accountInfo };
 }
 
 async function clearAllCachedTokens() {
   console.log("[GCX] 🧹 Starting to clear all cached tokens...");
+  tokenCache.clear();
+  for (const key of sessionStateStore.keys()) {
+    resetSessionState(key);
+  }
   return new Promise((resolve) => {
     try {
       chrome.identity.clearAllCachedAuthTokens(() => {
@@ -427,7 +642,7 @@ function buildUrl(base, pathOrUrl, params) {
   return url.toString();
 }
 
-async function googleFetch(request = {}, accountHint) {
+async function googleFetch(request = {}, accountHint, { sessionKey } = {}) {
   const {
     url,
     path,
@@ -475,37 +690,61 @@ async function googleFetch(request = {}, accountHint) {
 
   // Try silent first, then one interactive retry if unauthorized
   try {
-    const token = await getAuthToken({ interactive: false, accountHint });
-    const res = await fetch(target, {
+    let tokenRecord = await getAuthToken({
+      interactive: false,
+      accountHint,
+      sessionKey,
+    });
+    let res = await fetch(target, {
       method: "GET",
-      headers: buildHeadersWithAccount(token),
+      headers: buildHeadersWithAccount(tokenRecord.token),
       // GET: no request body
       body: undefined,
     });
 
     if (res.status === 401 || res.status === 403) {
       console.warn("[GCX] Got 401/403, removing token and retrying");
-      await removeCachedToken(token);
+      await removeCachedToken(tokenRecord.token, { revoke: true });
       if (interactiveOnRetry) {
-        const token2 = await getAuthToken({ interactive: true, accountHint });
-        const res2 = await fetch(target, {
+        tokenRecord = await getAuthToken({
+          interactive: true,
+          accountHint,
+          sessionKey,
+        });
+        res = await fetch(target, {
           method: "GET",
-          headers: buildHeadersWithAccount(token2),
+          headers: buildHeadersWithAccount(tokenRecord.token),
           body: undefined,
         });
-        return res2;
       }
     }
-    return res;
+    return { response: res, tokenInfo: tokenRecord };
   } catch (_err) {
     // Fallback: interactive fetch once
-    const token = await getAuthToken({ interactive: true, accountHint });
-    return fetch(target, {
+    const tokenRecord = await getAuthToken({
+      interactive: true,
+      accountHint,
+      sessionKey,
+    });
+    const response = await fetch(target, {
       method: "GET",
-      headers: buildHeadersWithAccount(token),
+      headers: buildHeadersWithAccount(tokenRecord.token),
       body: undefined,
     });
+    return { response, tokenInfo: tokenRecord };
   }
+}
+
+// タブ ID / frame ID / accountKey を組み合わせて「セッションキー」を作る。
+// これで同じ拡張でもタブごとに別セッション扱いになる。
+function deriveSessionKey(sender, accountHint) {
+  const tabId = typeof sender?.tab?.id === "number" ? sender.tab.id : null;
+  const frameId = typeof sender?.frameId === "number" ? sender.frameId : null;
+  const accountKey =
+    accountHint?.accountKey || accountHint?.fingerprint || "anon";
+  const tabPart = tabId !== null ? `tab${tabId}` : "bg";
+  const framePart = frameId !== null ? `-frame${frameId}` : "";
+  return `${tabPart}${framePart}:${accountKey}`;
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -605,12 +844,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           !!msg.interactive
         );
         try {
-          const token = await getAuthToken({
+          const sessionKey = deriveSessionKey(sender, msg.accountHint);
+          const tokenRecord = await getAuthToken({
             interactive: !!msg.interactive,
             accountHint: msg.accountHint,
+            sessionKey,
           });
-          console.log("[GCX] ✓ Token obtained, length:", token?.length || 0);
-          sendResponse({ ok: true, token });
+          console.log(
+            "[GCX] ✓ Token obtained, length:",
+            tokenRecord?.token?.length || 0
+          );
+          sendResponse({
+            ok: true,
+            token: tokenRecord.token,
+            account: tokenRecord.account,
+          });
         } catch (error) {
           console.error("[GCX] GET_TOKEN error:", error);
           sendResponse({
@@ -634,18 +882,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } else if (msg.type === "GCX_GOOGLE_FETCH") {
         try {
           console.log("[GCX] 📥 Processing GOOGLE_FETCH request");
-          const res = await googleFetch(msg.request || {}, msg.accountHint);
-          const ct = res.headers.get("content-type") || "";
+          const sessionKey = deriveSessionKey(sender, msg.accountHint);
+          const { response, tokenInfo } = await googleFetch(
+            msg.request || {},
+            msg.accountHint,
+            { sessionKey }
+          );
+          const ct = response.headers.get("content-type") || "";
           let data = null;
 
           if (ct.includes("application/json")) {
-            data = await res.json();
+            data = await response.json();
           } else {
-            data = await res.text();
+            data = await response.text();
           }
 
-          console.log("[GCX] ✓ GOOGLE_FETCH completed, status:", res.status);
-          sendResponse({ ok: res.ok, status: res.status, data });
+          console.log(
+            "[GCX] ✓ GOOGLE_FETCH completed, status:",
+            response.status
+          );
+          sendResponse({
+            ok: response.ok,
+            status: response.status,
+            data,
+            account: tokenInfo?.account || null,
+          });
         } catch (error) {
           console.error("[GCX] GOOGLE_FETCH error:", error);
           sendResponse({

@@ -511,6 +511,25 @@ async function forceOAuthAuthentication() {
             reject(new Error(res?.error || "OAuth authentication failed"));
             return;
           }
+          const expectedFingerprint = AccountIdentityHelper.getFingerprint();
+          const expectedAccountKey = AccountIdentityHelper.getCompositeKey();
+          // OAuth の結果が別アカウントだったら即エラー。ここで止めると切り替えバグを封じ込められる。
+          const responseFingerprint = res.account?.fingerprint || null;
+          const responseAccountKey = res.account?.accountKey || null;
+          if (
+            responseFingerprint &&
+            responseFingerprint !== expectedFingerprint
+          ) {
+            reject(new Error("Account mismatch detected after OAuth"));
+            return;
+          }
+          if (
+            responseAccountKey &&
+            responseAccountKey !== expectedAccountKey
+          ) {
+            reject(new Error("Account key mismatch after OAuth"));
+            return;
+          }
           console.log("[GCX] ✓ OAuth authentication successful");
           markAuthInitialized(AccountIdentityHelper.getCompositeKey()).catch(
             (err) => {
@@ -633,6 +652,27 @@ async function bgFetch(request, attempt = 0) {
 
           if (!res.ok) {
             reject(new Error(res.error || `HTTP ${res.status}`));
+            return;
+          }
+
+          const expectedAccountKey = AccountIdentityHelper.getCompositeKey();
+          const expectedFingerprint = AccountIdentityHelper.getFingerprint();
+          // 初心者メモ: レスポンスのアカウントと今ひらいているアカウントがズレてないか最終確認する。
+          // ここで弾いておけば、別アカウントのデータが UI に紛れ込むことはないよ。
+          const responseAccountKey = res.account?.accountKey || null;
+          const responseFingerprint = res.account?.fingerprint || null;
+          if (
+            responseAccountKey &&
+            responseAccountKey !== expectedAccountKey
+          ) {
+            reject(new Error("Account mismatch detected for response"));
+            return;
+          }
+          if (
+            responseFingerprint &&
+            responseFingerprint !== expectedFingerprint
+          ) {
+            reject(new Error("Fingerprint mismatch detected for response"));
             return;
           }
 
