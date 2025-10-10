@@ -254,3 +254,9 @@ TBD
 - 使用中: `src/libs/fuse.esm.js`（曖昧検索/Fuse.js）
 - 将来検討・未使用: `src/libs/hotkeys.min.js`（キーボードショートカット）、`src/libs/idb.min.js`（IndexedDB ラッパ）
   - 現状はブラウザ標準 API（IndexedDB）とシンプルなイベントで実装。将来的に保守性を優先する場合に差し替え可。
+
+## 問題点
+OAuthが何度も出るし、アカウントは切り替えられないし、getAuthTokenもlanchWebauthFlowも自分には駄目でした。３日こればっかやってたんで諦めます。
+
+
+＃　未完成！  
