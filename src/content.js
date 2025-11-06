@@ -47,10 +47,15 @@ const LOGIN_ERROR_KEYWORDS = [
 const CHANNEL_TOKEN_KEY = "gcxMessageChannelToken";
 const CHANNEL_TOKEN_LENGTH = 64;
 const AUTH_INIT_STATE_KEY = "gcxAuthInitStateV1";
+const FINGERPRINT_SALT_KEY = "gcxFingerprintSaltV1"; // 指紋ハッシュ専用のソルト保存キー
 
 let identityAccounts = [];
 let lastAccountFingerprint = null; // アカウント切り替え検知用
 let lastAccountKey = null;
+
+// 指紋ハッシュ作成用のソルトをキャッシュする箱たち
+let fingerprintSaltBytes = null;
+let fingerprintSaltPromise = null;
 
 let cachedChannelToken = null;
 let channelTokenPromise = null;
@@ -130,6 +135,106 @@ async function ensureChannelToken() {
     return await channelTokenPromise;
   } finally {
     channelTokenPromise = null;
+  }
+}
+
+// === 指紋ハッシュ用のソルト管理セクション ===
+function generateFingerprintSalt() {
+  // 初心者向けワンポイント: ソルトは「調味料」。同じパスワードでも味付けが変わり、推測されにくくなるよ。
+  const array = new Uint8Array(16); // 128bit = 16byte
+  crypto.getRandomValues(array);
+  return array;
+}
+
+function bufferToBase64(buffer) {
+  // ArrayBuffer → Base64 変換。保存やログで扱いやすくするための共通テクニック。
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function readFingerprintSaltFromStorage() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([FINGERPRINT_SALT_KEY], (items) => {
+        if (chrome.runtime.lastError) {
+          console.debug(
+            "[GCX] readFingerprintSaltFromStorage failed",
+            chrome.runtime.lastError.message
+          );
+          resolve(null);
+          return;
+        }
+        const raw = items?.[FINGERPRINT_SALT_KEY];
+        if (typeof raw === "string" && raw.length > 0) {
+          resolve(raw);
+        } else {
+          resolve(null);
+        }
+      });
+    } catch (err) {
+      console.debug("[GCX] readFingerprintSaltFromStorage threw", err);
+      resolve(null);
+    }
+  });
+}
+
+async function persistFingerprintSalt(base64Salt) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.set(
+        { [FINGERPRINT_SALT_KEY]: base64Salt },
+        () => {
+          if (chrome.runtime.lastError) {
+            console.debug(
+              "[GCX] persistFingerprintSalt failed",
+              chrome.runtime.lastError.message
+            );
+          }
+          resolve();
+        }
+      );
+    } catch (err) {
+      console.debug("[GCX] persistFingerprintSalt threw", err);
+      resolve();
+    }
+  });
+}
+
+async function ensureFingerprintSalt() {
+  // すでにキャッシュ済みなら即返す。毎回 storage を叩かないことで高速化。
+  if (fingerprintSaltBytes) return fingerprintSaltBytes;
+  if (fingerprintSaltPromise) return fingerprintSaltPromise;
+
+  fingerprintSaltPromise = (async () => {
+    const storedBase64 = await readFingerprintSaltFromStorage();
+    if (storedBase64) {
+      fingerprintSaltBytes = base64ToUint8Array(storedBase64);
+      return fingerprintSaltBytes;
+    }
+
+    const generated = generateFingerprintSalt();
+    fingerprintSaltBytes = generated;
+    await persistFingerprintSalt(bufferToBase64(generated.buffer));
+    return generated;
+  })();
+
+  try {
+    return await fingerprintSaltPromise;
+  } finally {
+    fingerprintSaltPromise = null;
   }
 }
 
@@ -420,7 +525,8 @@ async function clearAllAuthTokens() {
   await ensureServiceWorkerReady();
 
   try {
-    await clearAuthInitialized(AccountIdentityHelper.getCompositeKey());
+    const accountKey = await AccountIdentityHelper.getCompositeKeyAsync();
+    await clearAuthInitialized(accountKey);
   } catch (err) {
     console.debug("[GCX] clearAuthInitialized skipped", err);
   }
@@ -468,7 +574,10 @@ async function forceOAuthAuthentication() {
   await ensureServiceWorkerReady();
 
   await ensureIdentityAccounts();
-  const accountHint = getAccountHint();
+  await AccountIdentityHelper.prepare();
+  const accountHint = await getAccountHint();
+  const expectedFingerprint = AccountIdentityHelper.getFingerprint();
+  const expectedAccountKey = AccountIdentityHelper.getCompositeKey();
 
   console.log("[GCX] Forcing OAuth authentication for account:", accountHint);
 
@@ -511,8 +620,6 @@ async function forceOAuthAuthentication() {
             reject(new Error(res?.error || "OAuth authentication failed"));
             return;
           }
-          const expectedFingerprint = AccountIdentityHelper.getFingerprint();
-          const expectedAccountKey = AccountIdentityHelper.getCompositeKey();
           // OAuth の結果が別アカウントだったら即エラー。ここで止めると切り替えバグを封じ込められる。
           const responseFingerprint = res.account?.fingerprint || null;
           const responseAccountKey = res.account?.accountKey || null;
@@ -531,7 +638,7 @@ async function forceOAuthAuthentication() {
             return;
           }
           console.log("[GCX] ✓ OAuth authentication successful");
-          markAuthInitialized(AccountIdentityHelper.getCompositeKey()).catch(
+          markAuthInitialized(expectedAccountKey).catch(
             (err) => {
               console.debug(
                 "[GCX] markAuthInitialized failed (non-critical)",
@@ -557,7 +664,10 @@ async function bgFetch(request, attempt = 0) {
   }
 
   await ensureIdentityAccounts();
-  const accountHint = getAccountHint();
+  await AccountIdentityHelper.prepare();
+  const accountHint = await getAccountHint();
+  const expectedAccountKey = AccountIdentityHelper.getCompositeKey();
+  const expectedFingerprint = AccountIdentityHelper.getFingerprint();
   let channelToken;
   try {
     channelToken = await ensureChannelToken();
@@ -655,8 +765,6 @@ async function bgFetch(request, attempt = 0) {
             return;
           }
 
-          const expectedAccountKey = AccountIdentityHelper.getCompositeKey();
-          const expectedFingerprint = AccountIdentityHelper.getFingerprint();
           // 初心者メモ: レスポンスのアカウントと今ひらいているアカウントがズレてないか最終確認する。
           // ここで弾いておけば、別アカウントのデータが UI に紛れ込むことはないよ。
           const responseAccountKey = res.account?.accountKey || null;
@@ -1076,6 +1184,22 @@ function hashString(input) {
   return (hash >>> 0).toString(36);
 }
 
+async function createSaltedFingerprintHash(input) {
+  if (!input) return "";
+  const salt = await ensureFingerprintSalt();
+  // TextEncoder は文字列 → バイト列の変換器。UTF-8 固定なので国際化も安心。
+  const encoder = new TextEncoder();
+  const sourceBytes = encoder.encode(String(input));
+  const combined = new Uint8Array(salt.length + sourceBytes.length);
+  combined.set(salt, 0); // 先頭にソルト
+  combined.set(sourceBytes, salt.length); // 続けて元データ
+  const digest = await crypto.subtle.digest("SHA-256", combined.buffer);
+  return bufferToBase64(digest)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
 const STREAM_DB_NAME_BASE = "gcx-stream";
 const STREAM_DB_VERSION = 1;
 const STREAM_STORE_NAME = "posts";
@@ -1108,20 +1232,47 @@ class AccountIdentityHelper {
   }
 
   /**
-   * Classroom が教えてくれる GAIA ID やメールをハッシュ化して指紋を作る。
-   * そのままだと個人情報が丸見えだから、hashString でグチャッと混ぜて
-   * プライバシーを守る感じだよ。
+   * Classroom が教えてくれる GAIA ID やメールを「ソルト付き SHA-256」で固める。
+   * こうすることで、ローカルに保存しても逆算されにくい頑丈な指紋になる。
    */
-  static getFingerprint() {
+  static async computeFingerprint() {
     const gaiaId = getClassroomGaiaId();
     if (gaiaId) {
-      return `g${hashString(gaiaId)}`;
+      const hashed = await createSaltedFingerprintHash(gaiaId);
+      return `g${hashed}`;
     }
     const email = getClassroomAccountEmail();
     if (email) {
-      return `m${hashString(email)}`;
+      const hashed = await createSaltedFingerprintHash(email);
+      return `m${hashed}`;
     }
     return "anon";
+  }
+
+  static async prepare() {
+    if (this._preparePromise) {
+      await this._preparePromise;
+      return;
+    }
+
+    this._preparePromise = (async () => {
+      const fingerprint = await this.computeFingerprint();
+      this._fingerprint = fingerprint;
+      const indexKey = this.getIndexKey();
+      this._compositeKey = `${indexKey}-${fingerprint}`;
+    })();
+
+    try {
+      await this._preparePromise;
+    } finally {
+      this._preparePromise = null;
+    }
+  }
+
+  static getFingerprint() {
+    // 初回アクセス時は prepare() が未完了かもしれないので、anon を仮で返す。
+    // 実際には init() で await してから使うから問題なし。
+    return this._fingerprint || "anon";
   }
 
   /**
@@ -1129,10 +1280,17 @@ class AccountIdentityHelper {
    * インデックスだけじゃ別アカと判別できなかったから、
    * 指紋をくっつけて別 DB を使わせるのが狙い。
    */
+  static async getCompositeKeyAsync() {
+    await this.prepare();
+    return this._compositeKey;
+  }
+
   static getCompositeKey() {
-    const indexKey = this.getIndexKey();
-    const fingerprint = this.getFingerprint();
-    return `${indexKey}-${fingerprint}`;
+    if (!this._compositeKey) {
+      const fallbackFingerprint = this.getFingerprint();
+      this._compositeKey = `${this.getIndexKey()}-${fallbackFingerprint}`;
+    }
+    return this._compositeKey;
   }
 
   /**
@@ -1140,7 +1298,7 @@ class AccountIdentityHelper {
    * エラーになったら 0 扱いでいいよ、っていう初心者向け安全設計。
    */
   static getIndexNumber() {
-    const rawKey = this.getCompositeKey();
+    const rawKey = this.getIndexKey();
     const match = /^u(\d+)/.exec(rawKey);
     if (match) {
       const value = Number.parseInt(match[1], 10);
@@ -1151,6 +1309,11 @@ class AccountIdentityHelper {
     return 0;
   }
 }
+
+// 静的プロパティを後付けで定義。クラスの外に置くのは互換性を気にしたお作法だよ。
+AccountIdentityHelper._fingerprint = null;
+AccountIdentityHelper._compositeKey = null;
+AccountIdentityHelper._preparePromise = null;
 
 function getClassroomAccountKey() {
   return AccountIdentityHelper.getCompositeKey();
@@ -1247,7 +1410,8 @@ function getClassroomAccountEmail() {
   return null;
 }
 
-function getAccountHint() {
+async function getAccountHint() {
+  await AccountIdentityHelper.prepare();
   const index = getAccountIndex();
   const account = identityAccounts[index];
   const fallbackEmail = normalizeEmail(account?.email);
@@ -1523,6 +1687,7 @@ async function syncStreamPosts(options = {}) {
   try {
     // アカウント情報を最新化
     await ensureIdentityAccounts();
+    await AccountIdentityHelper.prepare();
 
     // 現在のアカウント指紋を取得
     const currentFingerprint = AccountIdentityHelper.getFingerprint();
@@ -2096,6 +2261,7 @@ async function observe() {
   // アカウント情報の初期化
   try {
     await ensureIdentityAccounts();
+    await AccountIdentityHelper.prepare();
     const initialFingerprint = AccountIdentityHelper.getFingerprint();
     lastAccountFingerprint = initialFingerprint;
     lastAccountKey = AccountIdentityHelper.getCompositeKey();
@@ -2759,6 +2925,9 @@ async function init() {
   console.log("[GCX] 🚀 Waking up Service Worker...");
   await ensureServiceWorkerReady();
   console.log("[GCX] ✓ Service Worker is active");
+
+  // 指紋を先に用意しておくと、この後の DB 操作や API 呼び出しがスムーズ。
+  await AccountIdentityHelper.prepare();
 
   ensureTopbar();
   await loadLocalLibs();
