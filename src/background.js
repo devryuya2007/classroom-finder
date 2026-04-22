@@ -927,8 +927,5 @@ gcxConsole.log(
 );
 gcxConsole.log("═══════════════════════════════════════");
 
-// 起動時にトークンをクリア（非同期）
-(async () => {
-  await clearAllCachedTokens();
-  gcxConsole.log("[GCX] Ready for OAuth authentication");
-})();
+// 起動時にトークンはクリアしない（不要な再認証を防ぐ）
+gcxConsole.log("[GCX] Ready for OAuth authentication");

@@ -1276,6 +1276,21 @@ function getStreamDbName() {
   return `${STREAM_DB_NAME_BASE}-${getClassroomAccountKey()}`;
 }
 
+function isPostForCurrentAccount(post) {
+  const currentAccountKey = AccountIdentityHelper.getCompositeKey();
+  const currentFingerprint = AccountIdentityHelper.getFingerprint();
+  const postAccountKey = normalizeWhitespace(post?.accountKey || "");
+  const postFingerprint = normalizeWhitespace(post?.accountFingerprint || "");
+
+  if (postAccountKey && postAccountKey !== currentAccountKey) {
+    return false;
+  }
+  if (postFingerprint && postFingerprint !== currentFingerprint) {
+    return false;
+  }
+  return true;
+}
+
 // streamIdを主としてopen
 function openStreamDB() {
   const dbName = getStreamDbName();
@@ -1292,6 +1307,8 @@ function openStreamDB() {
 async function persistStreamData(posts = []) {
   if (!posts.length) return { stored: 0, posts: [] };
   const request = openStreamDB();
+  const currentAccountKey = AccountIdentityHelper.getCompositeKey();
+  const currentFingerprint = AccountIdentityHelper.getFingerprint();
 
   return new Promise((resolve, reject) => {
     request.onerror = () => reject(request.error);
@@ -1310,6 +1327,11 @@ async function persistStreamData(posts = []) {
         const record = {
           ...post,
           apiId: normalizeWhitespace(post?.apiId || ""),
+          accountKey:
+            normalizeWhitespace(post?.accountKey || "") || currentAccountKey,
+          accountFingerprint:
+            normalizeWhitespace(post?.accountFingerprint || "") ||
+            currentFingerprint,
           streamId,
           savedAt,
         };
@@ -1353,7 +1375,9 @@ async function loadStreamPostsFromDb() {
 
       getAll.onsuccess = () => {
         const raw = getAll.result || [];
-        const normalized = raw.map((post, index) => {
+        const normalized = raw
+          .filter((post) => isPostForCurrentAccount(post))
+          .map((post, index) => {
           const streamId = ensureStableStreamId(post, index + 1);
           const apiId = normalizeWhitespace(post?.apiId || post?.apiid || "");
           const postedAtSource =
@@ -1380,7 +1404,7 @@ async function loadStreamPostsFromDb() {
               post?.courseName || post?.teacherName || "",
             ),
           };
-        });
+          });
         resolve(normalized);
         db.close();
       };
@@ -2552,9 +2576,26 @@ function highlightStreamElement(element) {
 //itemという投稿要素からidやリンクを得て遷移する関数に渡している
 async function handleSuggestionActivation(item) {
   if (!item) return;
+  if (!isPostForCurrentAccount(item)) {
+    gcxConsole.warn("[GCX] Blocked navigation for mismatched account item", {
+      itemAccountKey: item?.accountKey,
+      itemFingerprint: item?.accountFingerprint,
+      currentAccountKey: AccountIdentityHelper.getCompositeKey(),
+      currentFingerprint: AccountIdentityHelper.getFingerprint(),
+    });
+    setTopbarPlaceholder(PLACEHOLDER_ACCOUNT_MISMATCH);
+    return;
+  }
   const courseId = normalizeWhitespace(item.courseId || "");
   const alternateLink = normalizeWhitespace(item.alternateLink || "");
   const apiId = normalizeWhitespace(item.apiId || item.apiid || "");
+  const currentAccountIndex = String(getAccountIndex());
+
+  const normalizeNavigationTarget = (url) => {
+    url.searchParams.set("authuser", currentAccountIndex);
+    url.pathname = url.pathname.replace(/\/u\/\d+(?=\/|$)/, `/u/${currentAccountIndex}`);
+    return url;
+  };
 
   const navigateTo = (link) => {
     const href = normalizeWhitespace(link || "");
@@ -2579,7 +2620,7 @@ async function handleSuggestionActivation(item) {
       });
       return false;
     }
-    window.location.assign(url.toString());
+    window.location.assign(normalizeNavigationTarget(url).toString());
     return true;
   };
 
