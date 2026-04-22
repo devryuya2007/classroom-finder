@@ -36,6 +36,8 @@ let channelTokenLoading = null;
 const tokenCache = new Map();
 // セッション（タブ）ごとの状態管理。どの指紋/アカウントを握っているかを記録する。
 const sessionStateStore = new Map();
+// セッションごとの認証処理を1本化する（同時実行で認証画面が増殖するのを防ぐ）
+const authInFlightStore = new Map();
 
 // 超シンプルなハッシュ関数（djb2 風）。scope の組み合わせを短いキーにする用途だよ。
 function createSimpleHash(input) {
@@ -637,6 +639,20 @@ async function getAuthToken({
   return { token, account: accountInfo };
 }
 
+function getAuthTokenSingleFlight(options = {}) {
+  const key = ensureSessionKey(options.sessionKey);
+  const existing = authInFlightStore.get(key);
+  if (existing) return existing;
+
+  const task = getAuthToken(options).finally(() => {
+    if (authInFlightStore.get(key) === task) {
+      authInFlightStore.delete(key);
+    }
+  });
+  authInFlightStore.set(key, task);
+  return task;
+}
+
 async function clearAllCachedTokens() {
   gcxConsole.log("[GCX] 🧹 Starting to clear all cached tokens...");
   tokenCache.clear();
@@ -732,7 +748,7 @@ async function googleFetch(request = {}, accountHint, { sessionKey } = {}) {
 
   // Try silent first, then one interactive retry if unauthorized
   try {
-    let tokenRecord = await getAuthToken({
+    let tokenRecord = await getAuthTokenSingleFlight({
       interactive: false,
       accountHint,
       sessionKey,
@@ -748,7 +764,7 @@ async function googleFetch(request = {}, accountHint, { sessionKey } = {}) {
       gcxConsole.warn("[GCX] Got 401/403, removing token and retrying");
       await removeCachedToken(tokenRecord.token, { revoke: true });
       if (interactiveOnRetry) {
-        tokenRecord = await getAuthToken({
+        tokenRecord = await getAuthTokenSingleFlight({
           interactive: true,
           accountHint,
           sessionKey,
@@ -763,7 +779,7 @@ async function googleFetch(request = {}, accountHint, { sessionKey } = {}) {
     return { response: res, tokenInfo: tokenRecord };
   } catch (_err) {
     // Fallback: interactive fetch once
-    const tokenRecord = await getAuthToken({
+    const tokenRecord = await getAuthTokenSingleFlight({
       interactive: true,
       accountHint,
       sessionKey,
@@ -887,7 +903,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         );
         try {
           const sessionKey = deriveSessionKey(sender, msg.accountHint);
-          const tokenRecord = await getAuthToken({
+          const tokenRecord = await getAuthTokenSingleFlight({
             interactive: !!msg.interactive,
             accountHint: msg.accountHint,
             sessionKey,
