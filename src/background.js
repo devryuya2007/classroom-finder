@@ -447,7 +447,7 @@ async function runInteractiveConsentFlow({
   resolvedAccount,
   sessionKey,
 }) {
-  if (!OAUTH2_CLIENT_ID || !OAUTH2_SCOPES.length) return;
+  if (!OAUTH2_CLIENT_ID || !OAUTH2_SCOPES.length) return false;
   const params = new URLSearchParams({
     client_id: OAUTH2_CLIENT_ID,
     redirect_uri: OAUTH_REDIRECT_URI,
@@ -489,6 +489,7 @@ async function runInteractiveConsentFlow({
       reject(err);
     }
   });
+  return true;
 }
 
 async function getAuthToken({
@@ -558,9 +559,10 @@ async function getAuthToken({
     throw new Error(sessionState.authBlockReason);
   }
 
+  let consentFlowCompleted = false;
   if (interactive) {
     try {
-      await runInteractiveConsentFlow({
+      consentFlowCompleted = await runInteractiveConsentFlow({
         accountHint,
         resolvedAccount,
         sessionKey: normalizedSessionKey,
@@ -576,7 +578,9 @@ async function getAuthToken({
 
   const token = await new Promise((resolve, reject) => {
     try {
-      const details = { interactive };
+      const details = {
+        interactive: interactive && !consentFlowCompleted,
+      };
       if (accountParam) {
         details.account = accountParam;
       }
