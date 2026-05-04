@@ -1,140 +1,136 @@
-// Google Classroom のトップバーへ「クイック検索」UIを挿入するスクリプト
-// - Google Classroom API からデータを取得して検索用インデックスを作成
-// - スタイルは外部 CSS を <link> で一度だけ注入（UI 本体は後段で生成）
-// - 検索アイコンはインライン SVG 要素で描画（CSS 変数で色変更可）
-// ここから定数定義とスタイル注入ヘルパー
-const STYLE_ID = "gcx-sarch-style"; // 注入する <link> の id（重複防止）
-const STYLE_PATH = "src/gcx-topbar.css"; // 読み込むスタイルシートのパス
-const TOPBAR_WRAP = "gcx-topbar"; // 検索 UI ラッパーのクラス
-const TOPBAR_INPUT = "gcx-topbar-input"; // 検索入力のクラス
-const TOPBAR_ID = "gcx-topbar-overlay"; // DOM 上の ID（重複防止）
-const EXPANDED_CLASS = "is-expanded";
-const REFRESH_BUTTON_SELECTOR = ".gcx-refresh-btn";
-const REFRESH_ERROR_CLASS = "is-error";
-const REFRESH_ERROR_DURATION_MS = 1500;
-const SUGGESTION_LIMIT = 20; // 初心者メモ: Fuse.js の検索結果は 20 件までに抑えておく
-const SVG_NS = "http://www.w3.org/2000/svg";
-const ICON_PATH_DATA = [
-  "M172.625,102.4c-42.674,0-77.392,34.739-77.392,77.438c0,5.932,4.806,10.74,10.733,10.74c5.928,0,10.733-4.808,10.733-10.74c0-30.856,25.088-55.959,55.926-55.959c5.928,0,10.733-4.808,10.733-10.74C183.358,107.208,178.553,102.4,172.625,102.4z",
-  "M361.657,301.511c19.402-30.436,30.645-66.546,30.645-105.244C392.302,88.036,304.318,0,196.151,0c-38.676,0-74.765,11.25-105.182,30.663C66.734,46.123,46.11,66.759,30.659,91.008C11.257,121.444,0,157.568,0,196.267c0,108.217,87.998,196.266,196.151,196.266c38.676,0,74.779-11.264,105.197-30.677C325.582,346.396,346.206,325.76,361.657,301.511z M259.758,320.242c-19.075,9.842-40.708,15.403-63.607,15.403c-76.797,0-139.296-62.535-139.296-139.378c0-22.912,5.558-44.558,15.394-63.644c13.318-25.856,34.483-47.019,60.323-60.331c19.075-9.842,40.694-15.403,63.578-15.403c76.812,0,139.296,62.521,139.296,139.378c0,22.898-5.558,44.53-15.394,63.616C306.749,285.739,285.598,306.916,259.758,320.242z",
-  "M499.516,439.154L386.275,326.13c-16.119,23.552-36.771,44.202-60.309,60.345l113.241,113.024c8.329,8.334,19.246,12.501,30.148,12.501c10.916,0,21.833-4.167,30.162-12.501C516.161,482.83,516.161,455.822,499.516,439.154z",
-];
+// Content script entry point for Google Classroom quick search
 
-// リロードアイコンのパスデータ（512x512 ビューボックス）
-const RELOAD_ICON_PATH_DATA =
-  "M446.025,92.206c-40.762-42.394-97.487-69.642-160.383-72.182c-15.791-0.638-29.114,11.648-29.752,27.433c-0.638,15.791,11.648,29.114,27.426,29.76c47.715,1.943,90.45,22.481,121.479,54.681c30.987,32.235,49.956,75.765,49.971,124.011c-0.015,49.481-19.977,94.011-52.383,126.474c-32.462,32.413-76.999,52.368-126.472,52.382c-49.474-0.015-94.025-19.97-126.474-52.382c-32.405-32.463-52.368-76.992-52.382-126.474c0-3.483,0.106-6.938,0.302-10.364l34.091,16.827c3.702,1.824,8.002,1.852,11.35,0.086c3.362-1.788,5.349-5.137,5.264-8.896l-3.362-149.834c-0.114-4.285-2.88-8.357-7.094-10.464c-4.242-2.071-9.166-1.809-12.613,0.738L4.008,182.45c-3.05,2.221-4.498,5.831-3.86,9.577c0.61,3.759,3.249,7.143,6.966,8.974l35.722,17.629c-1.937,12.166-3.018,24.602-3.018,37.279c-0.014,65.102,26.475,124.31,69.153,166.944C151.607,465.525,210.8,492.013,275.91,492c65.095,0.014,124.302-26.475,166.937-69.146c42.678-42.635,69.167-101.842,69.154-166.944C512.014,192.446,486.844,134.565,446.025,92.206z";
-const ERROR_ICON_PATHS = [
-  "M2.20164 18.4695L10.1643 4.00506C10.9021 2.66498 13.0979 2.66498 13.8357 4.00506L21.7984 18.4695C22.4443 19.6428 21.4598 21 19.9627 21H4.0373C2.54022 21 1.55571 19.6428 2.20164 18.4695Z",
-  "M12 9V13",
-  "M12 17.0195V17",
-];
-const ERROR_ICON_COLOR = "#EA4335";
-const PLACEHOLDER_DEFAULT = "クラス全体を検索…";
-const PLACEHOLDER_SYNC_ERROR = "同期に失敗しました";
-const PLACEHOLDER_LOGIN_REQUIRED = "Googleアカウントにログインしてください。";
-const PLACEHOLDER_RELOAD_REQUIRED = "ページをリロードしてください。";
-const PLACEHOLDER_ACCOUNT_MISMATCH =
-  "アカウントを確認してから再試行してください。";
+import { gcxConsole } from "./modules/shared/utils.js";
 
-const RELOAD_ERROR_KEYWORDS = ["no response from background"];
-const LOGIN_ERROR_KEYWORDS = [
-  "getauthtoken",
-  "oauth",
-  "no token",
-  "not authorized",
-  "authorization",
-  "http 401",
-];
+// UI modules
+import { ensureTopbar, setTopbarPlaceholder } from "./modules/content/ui/topbar.js";
+import { createSuggestionItem, renderSuggestions, handleSuggestionActivation, rerunLastQuery } from "./modules/content/ui/suggestions.js";
 
-const CHANNEL_TOKEN_KEY = "gcxMessageChannelToken";
-const CHANNEL_TOKEN_LENGTH = 64;
+// Data modules
+import { initFuse, collectTopMatches, loadLocalLibs, fuseInstance } from "./modules/content/search.js";
+import { loadStreamPostsFromDb, persistStreamData, findNewPosts, findRemovedPostIds, removeStreamPostsByIds, getStreamDbName } from "./modules/content/database.js";
 
-const gcxConsole = {
-  log: () => {},
-  info: () => {},
-  debug: () => {},
-  warn: (...args) => globalThis.console.warn(...args),
-  error: (...args) => globalThis.console.error(...args),
-};
-const AUTH_INIT_STATE_KEY = "gcxAuthInitStateV1";
+// Auth modules
+import { ensureServiceWorkerReady, clearAllAuthTokens, forceOAuthAuthentication, cachedChannelToken, ensureChannelToken } from "./modules/content/auth.js";
 
+// Account modules
+import { AccountIdentityHelper, getAccountHint, getClassroomGaiaId, getClassroomAccountEmail, isPostForCurrentAccount, normalizeEmail } from "./modules/content/account.js";
+
+// API modules
+import { bgFetch, fetchAllAnnouncementsPosts } from "./modules/content/api.js";
+
+// Data sync
+import { syncStreamPosts, resetSearchResults } from "./modules/content/sync.js";
+
+// Constants & utils
+import { API_MODE, POLL_INTERVAL_MS, PLACEHOLDER_DEFAULT, PLACEHOLDER_ACCOUNT_MISMATCH, AUTH_INIT_STATE_KEY, STREAM_SELECTOR_PRIMARY, STREAM_SELECTOR_FALLBACK, STREAM_ID_SELECTOR } from "./modules/content/constants.js";
+import { normalizeWhitespace, formatPostedAtForJapan, normalizeAttachments, toArray } from "./modules/content/utils.js";
+
+// Global state
 let identityAccounts = [];
-let lastAccountFingerprint = null; // アカウント切り替え検知用
+let lastAccountFingerprint = null;
 let lastAccountKey = null;
+let lastQuery = "";
+let topbarObserver = null;
+let topbarCheckInterval = null;
+let accountInitialized = false;
+let lastPathname = window.location.pathname;
 
-let cachedChannelToken = null;
-let channelTokenPromise = null;
-
+// Setup storage listener for channel token
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
-  if (Object.prototype.hasOwnProperty.call(changes, CHANNEL_TOKEN_KEY)) {
-    const next = changes[CHANNEL_TOKEN_KEY]?.newValue;
-    if (typeof next === "string" && next.length >= CHANNEL_TOKEN_LENGTH) {
-      cachedChannelToken = next;
-    } else {
-      cachedChannelToken = null;
-    }
+  if (Object.prototype.hasOwnProperty.call(changes, "gcxMessageChannelToken")) {
+    // Channel token updated
   }
 });
 
-function isValidChannelToken(value) {
-  return typeof value === "string" && value.length >= CHANNEL_TOKEN_LENGTH;
+function isAccountMismatchError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("account mismatch") ||
+    message.includes("account key mismatch") ||
+    message.includes("fingerprint mismatch")
+  );
 }
 
-function readChannelTokenFromStorage() {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.local.get([CHANNEL_TOKEN_KEY], (items) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+function resolveRefreshErrorPlaceholder(error) {
+  if (!error) {
+    return "同期に失敗しました";
+  }
+  const message = String(error?.message || error || "").toLowerCase();
+  if (isAccountMismatchError(error)) {
+    return PLACEHOLDER_ACCOUNT_MISMATCH;
+  }
+  if (/(quota|ratelimit|too many|429)/.test(message)) {
+    return "アクセスが多すぎます。しばらく待ってから再試行してください";
+  }
+  if (["no response from background"].some((keyword) => message.includes(keyword))) {
+    return PLACEHOLDER_RELOAD_REQUIRED;
+  }
+  if (
+    [
+      "getauthtoken",
+      "oauth",
+      "no token",
+      "not authorized",
+      "authorization",
+      "http 401",
+    ].some((keyword) => message.includes(keyword))
+  ) {
+    return PLACEHOLDER_LOGIN_REQUIRED;
+  }
+  return "同期に失敗しました";
+}
+
+function checkTopbarPresence() {
+  const existing = document.getElementById("gcx-topbar-overlay");
+  if (!existing || !document.body.contains(existing)) {
+    gcxConsole.debug("[GCX] Topbar missing, re-injecting");
+    ensureTopbar(uiHandlers);
+  }
+}
+
+function setupTopbarObserver() {
+  if (topbarObserver) return;
+
+  topbarObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.removedNodes) {
+        if (
+          node.id === "gcx-topbar-overlay" ||
+          (node.contains && node.contains(document.getElementById("gcx-topbar-overlay")))
+        ) {
+          gcxConsole.debug("[GCX] Topbar removed by DOM mutation, re-injecting");
+          ensureTopbar(uiHandlers);
           return;
         }
-        resolve(items?.[CHANNEL_TOKEN_KEY] || null);
-      });
-    } catch (err) {
-      reject(err);
+      }
     }
+  });
+
+  topbarObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
   });
 }
 
-function requestChannelTokenFromBackground() {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage({ type: "GCX_GET_CHANNEL_TOKEN" }, (res) => {
-        const runtimeError = chrome.runtime.lastError;
-        if (runtimeError) {
-          reject(new Error(runtimeError.message));
-          return;
-        }
-        if (!res?.ok || !isValidChannelToken(res.channelToken)) {
-          reject(
-            new Error(res?.error || "Failed to obtain channel token from SW"),
-          );
-          return;
-        }
-        resolve(res.channelToken);
-      });
-    } catch (err) {
-      reject(err);
-    }
-  });
+function setupTopbarCheckInterval() {
+  if (topbarCheckInterval) return;
+  topbarCheckInterval = setInterval(checkTopbarPresence, 30000);
 }
 
-async function ensureChannelToken() {
-  if (cachedChannelToken) return cachedChannelToken;
-  if (channelTokenPromise) return channelTokenPromise;
+function setupAccountSwitchDetection() {
+  const checkAccountSwitch = () => {
+    const currentPathname = window.location.pathname;
+    if (currentPathname !== lastPathname) {
+      const oldMatch = lastPathname.match(/\/u\/(\d+)/);
+      const newMatch = currentPathname.match(/\/u\/(\d+)/);
+      const oldIndex = oldMatch ? oldMatch[1] : "0";
+      const newIndex = newMatch ? newMatch[1] : "0";
 
-  channelTokenPromise = (async () => {
-    const stored = await readChannelTokenFromStorage().catch(() => null);
-    if (isValidChannelToken(stored)) {
-      cachedChannelToken = stored;
-      return stored;
-    }
-
-    const token = await requestChannelTokenFromBackground();
-    cachedChannelToken = token;
-    return token;
-  })();
+      if (oldIndex !== newIndex) {
+        gcxConsole.log("[GCX] 🔄 URL changed, account switch detected!");
+        lastPathname = currentPathname;
 
   try {
     return await channelTokenPromise;
