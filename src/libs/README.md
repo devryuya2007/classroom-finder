@@ -1,10 +1,10 @@
 # Bundled Libraries
 
-このディレクトリには、拡張機能内で直接読み込むスタンドアロン版ライブラリを格納しています。外部 CDN へ依存しない方針（`README.md`・`docs/AGENTS.md` 参照）に従い、ここに置いたファイルのみを `content.js` からロードします。
+このディレクトリには、拡張機能内で直接読み込むスタンドアロン版ライブラリを格納しています。外部 CDN へ依存しない方針（`README.md`・`docs/AGENTS.md` 参照）に従い、ここに置いたファイルのみを `content.entry.js` からロードします。
 
 ## CSP に関する注意
 
-Google Classroom 側の Content Security Policy と MV3 拡張機能の制約により、ページに対して外部ホストのスクリプトを挿入することはできません。必ず拡張パッケージに同梱したファイルを `web_accessible_resources` 経由で配信し、`content.js` からは `chrome.runtime.getURL(...)` で解決したパスだけを利用してください。CSP 違反が発生した場合は Console に `Refused to load the script` などのメッセージが出力されるので、外部 URL を参照していないか確認します。
+Google Classroom 側の Content Security Policy と MV3 拡張機能の制約により、ページに対して外部ホストのスクリプトを挿入することはできません。必ず拡張パッケージに同梱したファイルを `web_accessible_resources` 経由で配信し、開発用の `content.entry.js` からは `chrome.runtime.getURL(...)` で解決したパスだけを利用してください。CSP 違反が発生した場合は Console に `Refused to load the script` などのメッセージが出力されるので、外部 URL を参照していないか確認します。
 
 ## バージョン一覧
 
@@ -37,7 +37,7 @@ Google Classroom 側の Content Security Policy と MV3 拡張機能の制約に
 
 1. `docs/AGENTS.md` の「No new network calls」ポリシーに従い、アップデート後も外部通信が発生しないことを DevTools Network タブで確認する。
 2. バージョンを更新する場合は、本ファイルと `README.md` の該当記述（バージョン・依存方針）を同時に更新し、`CHANGELOG.md` に記録する。
-3. 差し替え後は `src/content.js` の `LIB_SPECS` に変更がないか確認し、必要であれば新ファイル名へ更新する。
+3. 差し替え後は `src/content.entry.js` の `LIB_SPECS` に変更がないか確認し、必要であれば新ファイル名へ更新する。
 4. PR では取得元とハッシュ（可能であれば `shasum`）を記載し、手動テストログ（検索・ショートカット・IndexedDB 動作）を添付する。
 
 ## トラブルシュート

@@ -5,7 +5,7 @@ import { build } from "esbuild";
 const projectRoot = resolve(process.cwd());
 const distDir = resolve(projectRoot, "dist");
 const contentEntry = resolve(projectRoot, "src/content.entry.js");
-const contentOutfile = resolve(projectRoot, "src/content.js");
+const contentOutfile = resolve(distDir, "src/content.js");
 
 const targets = [
   { from: "manifest.json", to: "manifest.json" },
@@ -41,8 +41,8 @@ async function bundleContentScript() {
 }
 
 async function main() {
-  await bundleContentScript();
   await cleanDist();
+  await bundleContentScript();
   await copyTargets();
   console.log("Build complete: dist/");
 }
