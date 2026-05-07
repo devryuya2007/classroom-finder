@@ -149,7 +149,9 @@ export async function syncStreamPosts(options = {}, dependencies) {
     } else if (!existingPosts.length) {
       await resetSearchResults(renderSuggestions);
     }
-    setTopbarPlaceholder(PLACEHOLDER_DEFAULT);
+    if (!options.keepPlaceholder) {
+      setTopbarPlaceholder(PLACEHOLDER_DEFAULT);
+    }
   } catch (error) {
     if (!savedPosts.length) {
       await resetSearchResults(renderSuggestions);
