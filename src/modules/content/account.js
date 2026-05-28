@@ -1,11 +1,14 @@
 // Account management for content script
 
 import { gcxConsole, EMAIL_REGEX } from "../shared/utils.js";
-import { hashString } from "./utils.js";
+import { hashString, normalizeWhitespace } from "./utils.js";
 
 export class AccountIdentityHelper {
   static getIndexKey() {
     try {
+      if (typeof window === "undefined" || !window.location?.href) {
+        return "u0";
+      }
       const url = new URL(window.location.href);
       const authuserParam = url.searchParams.get("authuser");
       if (authuserParam && /^\d+$/.test(authuserParam)) {
@@ -61,6 +64,9 @@ export function normalizeEmail(value) {
 }
 
 function getWizGlobalData() {
+  if (typeof window === "undefined") {
+    return null;
+  }
   const data = window.WIZ_global_data;
   if (data && typeof data === "object") {
     return data;
@@ -86,6 +92,9 @@ export function getClassroomGaiaId() {
       }
     }
   }
+  if (typeof document === "undefined") {
+    return null;
+  }
   const metaId = document.querySelector('meta[name="og-profile-id"]');
   const metaValue = metaId?.getAttribute("content");
   if (metaValue && /^\d{5,}$/.test(metaValue.trim())) {
@@ -96,6 +105,9 @@ export function getClassroomGaiaId() {
 }
 
 export function getClassroomAccountEmail() {
+  if (typeof document === "undefined") {
+    return null;
+  }
   const meta = document.querySelector('meta[name="og-profile-acct"]');
   const metaEmail = normalizeEmail(meta?.getAttribute("content"));
   if (metaEmail) return metaEmail;
@@ -154,11 +166,15 @@ export function getAccountIndex() {
   return AccountIdentityHelper.getIndexNumber();
 }
 
+export function normalizeAccountIdentifier(value) {
+  return normalizeWhitespace(value || "");
+}
+
 export function isPostForCurrentAccount(post) {
   const currentAccountKey = AccountIdentityHelper.getCompositeKey();
   const currentFingerprint = AccountIdentityHelper.getFingerprint();
-  const postAccountKey = normalizeEmail(post?.accountKey || "");
-  const postFingerprint = normalizeEmail(post?.accountFingerprint || "");
+  const postAccountKey = normalizeAccountIdentifier(post?.accountKey);
+  const postFingerprint = normalizeAccountIdentifier(post?.accountFingerprint);
 
   if (postAccountKey && postAccountKey !== currentAccountKey) {
     return false;

@@ -7,7 +7,7 @@ import {
   deriveAttachmentLabels,
   cssEscapeSafe,
 } from "../utils.js";
-import { renderHighlightedText } from "../search.js";
+import { getCurrentSearchDocs, renderHighlightedText } from "../search.js";
 import { AccountIdentityHelper, isPostForCurrentAccount } from "../account.js";
 import { ALLOWED_NAV_HOSTS } from "../constants.js";
 import { normalizeWhitespace } from "../utils.js";
@@ -234,15 +234,11 @@ export async function handleSuggestionActivation(item, handlers) {
 }
 
 export function rerunLastQuery(lastQuery, collectTopMatches, renderSuggestions, handlers) {
-  if (!handlers.fuseInstance) {
-    return;
-  }
   if (lastQuery) {
     renderSuggestions(collectTopMatches(lastQuery), handlers);
   } else {
-    const allPosts = handlers.fuseInstance.getIndex().docs || [];
     const SUGGESTION_LIMIT = 20;
-    const limited = allPosts
+    const limited = getCurrentSearchDocs()
       .slice(0, SUGGESTION_LIMIT)
       .map((item) => ({ item }));
     renderSuggestions(limited, handlers);
