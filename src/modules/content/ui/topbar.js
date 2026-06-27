@@ -247,9 +247,15 @@ function createRefreshActionMenu(refreshBtn) {
   const actionWrap = document.createElement("div");
   actionWrap.classList.add("gcx-refresh-action-wrap");
 
+  const hoverBridge = document.createElement("div");
+  hoverBridge.classList.add("gcx-radial-hover-bridge");
+
   const radialMenu = document.createElement("div");
   radialMenu.classList.add("gcx-radial-menu");
   radialMenu.setAttribute("aria-hidden", "true");
+
+  const radialSurface = document.createElement("div");
+  radialSurface.classList.add("gcx-radial-surface");
 
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
@@ -258,11 +264,20 @@ function createRefreshActionMenu(refreshBtn) {
   settingsButton.setAttribute("aria-label", "設定を開く");
   settingsButton.appendChild(ensureSettingsSVG());
 
+  for (let i = 0; i < 2; i += 1) {
+    const emptySlot = document.createElement("span");
+    emptySlot.classList.add("gcx-radial-empty-slot");
+    emptySlot.setAttribute("aria-hidden", "true");
+    radialSurface.appendChild(emptySlot);
+  }
+  radialSurface.appendChild(settingsButton);
+
   const settingsPanel = createSettingsPanel();
-  radialMenu.appendChild(settingsButton);
-  actionWrap.append(refreshBtn, radialMenu, settingsPanel);
+  radialMenu.appendChild(radialSurface);
+  actionWrap.append(refreshBtn, hoverBridge, radialMenu, settingsPanel);
 
   let hoverTimerId = null;
+  let closeTimerId = null;
   let isMenuOpen = false;
   const menuMotion = createMotionState(radialMenu, { opacity: 0, scale: 0.7 });
   const settingsMotion = createMotionState(settingsButton, {
@@ -275,6 +290,7 @@ function createRefreshActionMenu(refreshBtn) {
   const openMenu = () => {
     if (isMenuOpen) return;
     isMenuOpen = true;
+    actionWrap.classList.add("is-radial-open");
     radialMenu.setAttribute("aria-hidden", "false");
     animateMotion(radialMenu, menuMotion, {
       opacity: 1,
@@ -284,8 +300,8 @@ function createRefreshActionMenu(refreshBtn) {
     });
     animateMotion(settingsButton, settingsMotion, {
       opacity: 1,
-      x: -42,
-      y: 42,
+      x: 0,
+      y: 0,
       scale: 1,
       duration: 0.32,
       ease: "back.out(1.7)",
@@ -297,8 +313,13 @@ function createRefreshActionMenu(refreshBtn) {
       clearTimeout(hoverTimerId);
       hoverTimerId = null;
     }
+    if (closeTimerId) {
+      clearTimeout(closeTimerId);
+      closeTimerId = null;
+    }
     if (!isMenuOpen || !settingsPanel.hidden) return;
     isMenuOpen = false;
+    actionWrap.classList.remove("is-radial-open");
     radialMenu.setAttribute("aria-hidden", "true");
     animateMotion(settingsButton, settingsMotion, {
       opacity: 0,
@@ -316,11 +337,24 @@ function createRefreshActionMenu(refreshBtn) {
     });
   };
 
+  const scheduleCloseMenu = () => {
+    if (hoverTimerId) {
+      clearTimeout(hoverTimerId);
+      hoverTimerId = null;
+    }
+    if (closeTimerId) clearTimeout(closeTimerId);
+    closeTimerId = window.setTimeout(closeMenu, 180);
+  };
+
   actionWrap.addEventListener("pointerenter", () => {
     if (hoverTimerId) clearTimeout(hoverTimerId);
+    if (closeTimerId) {
+      clearTimeout(closeTimerId);
+      closeTimerId = null;
+    }
     hoverTimerId = window.setTimeout(openMenu, RADIAL_MENU_HOVER_DELAY_MS);
   });
-  actionWrap.addEventListener("pointerleave", closeMenu);
+  actionWrap.addEventListener("pointerleave", scheduleCloseMenu);
   actionWrap.addEventListener("focusin", openMenu);
   actionWrap.addEventListener("focusout", (event) => {
     if (event.relatedTarget && actionWrap.contains(event.relatedTarget)) {
