@@ -206,29 +206,22 @@
   width: 100%;
   height: 100%;
   padding: 0;
-  border: 1px solid rgba(26, 115, 232, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, transparent 0 29px, rgba(255, 255, 255, 0.96) 30px),
-    conic-gradient(
-      from -30deg,
-      #174f6d 0deg 58deg,
-      rgba(226, 232, 240, 0.9) 58deg 60deg,
-      #1fa8ff 60deg 118deg,
-      rgba(226, 232, 240, 0.9) 118deg 120deg,
-      #ffffff 120deg 178deg,
-      rgba(226, 232, 240, 0.9) 178deg 180deg,
-      #ffffff 180deg 238deg,
-      rgba(226, 232, 240, 0.9) 238deg 240deg,
-      #ffffff 240deg 298deg,
-      rgba(226, 232, 240, 0.9) 298deg 300deg,
-      #ffffff 300deg 358deg,
-      rgba(226, 232, 240, 0.9) 358deg 360deg
-    );
+    radial-gradient(
+      circle at 68% 32%,
+      rgba(255, 217, 32, 0.86) 0 9px,
+      rgba(255, 209, 0, 0.42) 10px 20px,
+      transparent 31px
+    ),
+    radial-gradient(circle at center, transparent 0 29px, rgba(64, 68, 78, 0.9) 30px),
+    linear-gradient(145deg, rgba(82, 86, 98, 0.92), rgba(50, 54, 65, 0.95));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 12px 28px rgba(60, 64, 67, 0.2);
-  backdrop-filter: blur(16px);
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -12px 24px rgba(22, 25, 32, 0.28),
+    0 14px 28px rgba(20, 24, 32, 0.34);
+  backdrop-filter: blur(14px);
   pointer-events: auto;
 }
 
@@ -236,10 +229,10 @@
   position: absolute;
   inset: 30px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(236, 239, 247, 0.88);
   box-shadow:
-    inset 0 4px 12px rgba(60, 64, 67, 0.12),
-    0 1px 0 rgba(255, 255, 255, 0.6);
+    inset 0 4px 12px rgba(20, 24, 32, 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.14);
   content: "";
   pointer-events: none;
 }
@@ -253,24 +246,34 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  border: 1px solid rgba(26, 115, 232, 0.24);
+  border: none;
   align-items: center;
   justify-content: center;
 }
 
 .gcx-radial-action {
-  background: rgba(255, 255, 255, 0.94);
-  color: #1a73e8;
+  background: transparent;
+  color: #ffe15a;
   transform: translate(17px, -29px);
-  box-shadow: 0 6px 14px rgba(60, 64, 67, 0.18);
+  filter: drop-shadow(0 0 9px rgba(255, 217, 32, 0.88));
   cursor: pointer;
   pointer-events: auto;
 }
 
 .gcx-radial-empty-slot {
-  background: rgba(255, 255, 255, 0.54);
-  border-color: rgba(26, 115, 232, 0.08);
-  box-shadow: inset 0 1px 3px rgba(60, 64, 67, 0.06);
+  background: transparent;
+  color: rgba(244, 247, 252, 0.66);
+}
+
+.gcx-radial-empty-slot::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow:
+    0 0 0 4px rgba(244, 247, 252, 0.07),
+    0 0 8px rgba(255, 255, 255, 0.12);
+  content: "";
 }
 
 .gcx-radial-slot-1 {
@@ -295,9 +298,9 @@
 
 .gcx-radial-action:hover,
 .gcx-radial-action:focus-visible {
-  background: #e8f0fe;
+  background: transparent;
   outline: none;
-  box-shadow: 0 12px 28px rgba(26, 115, 232, 0.28);
+  filter: drop-shadow(0 0 12px rgba(255, 217, 32, 0.98));
 }
 
 .gcx-radial-action .settings-icon {
