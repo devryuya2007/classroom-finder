@@ -515,7 +515,6 @@ export function createTopbar(handlers) {
   const refreshBtn = document.createElement("button");
   refreshBtn.type = "button";
   refreshBtn.classList.add("gcx-refresh-btn");
-  refreshBtn.title = "新規投稿を同期";
   refreshBtn.setAttribute("aria-label", "更新");
   refreshBtn.prepend(ensureReloadSVG());
   const errorTag = document.createElement("span");
