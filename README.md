@@ -130,7 +130,7 @@ manifest.json の設定は以下のとおりです（本リポジトリのファ
 ## アーキテクチャ（現状構成）
 
 - `manifest.json` # MV3 マニフェスト（ルート）
-- `src/content.js` # UI 注入（トップバー・サジェスト） / IndexedDB / Fuse 検索
+- `src/content.entry.js` # UI 注入（トップバー・サジェスト） / IndexedDB / Fuse 検索の入口
 - `src/background.js` # OAuth トークン取得 + Classroom API 代理フェッチ（許可ホスト/HTTPS/GET 限定）
 - `src/gcx-topbar.css` # トップバー UI スタイル
 - `src/libs/` # 同梱ライブラリ（`fuse.esm.js` ほか）

@@ -7,7 +7,7 @@ import { ensureTopbar, setTopbarPlaceholder } from "./modules/content/ui/topbar.
 import { createSuggestionItem, renderSuggestions, handleSuggestionActivation, rerunLastQuery } from "./modules/content/ui/suggestions.js";
 
 // Data modules
-import { initFuse, collectTopMatches, loadLocalLibs, fuseInstance } from "./modules/content/search.js";
+import { collectTopMatches, loadLocalLibs, fuseInstance } from "./modules/content/search.js";
 import { loadStreamPostsFromDb, persistStreamData, findNewPosts, findRemovedPostIds, removeStreamPostsByIds, getStreamDbName } from "./modules/content/database.js";
 
 // Auth modules
@@ -20,7 +20,12 @@ import { AccountIdentityHelper, getAccountHint, getClassroomGaiaId, getClassroom
 import { bgFetch, fetchAllAnnouncementsPosts } from "./modules/content/api.js";
 
 // Data sync
-import { syncStreamPosts, resetSearchResults } from "./modules/content/sync.js";
+import {
+  syncStreamPosts,
+  resetSearchResults,
+  reloadSearchIndexForCurrentAccount,
+  waitForSyncIdle,
+} from "./modules/content/sync.js";
 
 // Constants & utils
 import { API_MODE, POLL_INTERVAL_MS, PLACEHOLDER_DEFAULT, PLACEHOLDER_ACCOUNT_MISMATCH, PLACEHOLDER_ACCOUNT_SWITCH_SUCCESS, PLACEHOLDER_RELOAD_REQUIRED, PLACEHOLDER_LOGIN_REQUIRED, AUTH_INIT_STATE_KEY, ACCOUNT_SWITCH_STATE_KEY, STREAM_SELECTOR_PRIMARY, STREAM_SELECTOR_FALLBACK, STREAM_ID_SELECTOR } from "./modules/content/constants.js";
@@ -263,7 +268,20 @@ async function handleAccountSwitchReload(previousState, currentSnapshot) {
   accountSwitchSuccessMessageActive = false;
   setTopbarPlaceholder("アカウント切り替えを検知しました...");
 
+  let succeeded = false;
   try {
+    await ensureIdentityAccounts({ force: true });
+    await reloadSearchIndexForCurrentAccount({
+      loadStreamPostsFromDb,
+      rerunLastQuery: () =>
+        rerunLastQuery(
+          lastQuery,
+          collectTopMatches,
+          (results) => renderSuggestions(results, uiHandlers),
+          uiHandlers
+        ),
+    });
+    await waitForSyncIdle();
     await syncStreamPosts(
       {
         source: "account-switch",
@@ -275,18 +293,21 @@ async function handleAccountSwitchReload(previousState, currentSnapshot) {
       syncDependencies
     );
     accountSwitchSuccessMessageActive = true;
+    succeeded = true;
     setTopbarPlaceholder(PLACEHOLDER_ACCOUNT_SWITCH_SUCCESS);
   } catch (err) {
     accountSwitchSuccessMessageActive = false;
     setTopbarPlaceholder(resolveRefreshErrorPlaceholder(err));
   } finally {
-    lastAccountFingerprint = currentSnapshot.fingerprint;
-    lastAccountKey = currentSnapshot.accountKey;
-    await writeAccountSwitchState({
-      fingerprint: currentSnapshot.fingerprint,
-      accountKey: currentSnapshot.accountKey,
-      updatedAt: Date.now(),
-    });
+    if (succeeded) {
+      lastAccountFingerprint = currentSnapshot.fingerprint;
+      lastAccountKey = currentSnapshot.accountKey;
+      await writeAccountSwitchState({
+        fingerprint: currentSnapshot.fingerprint,
+        accountKey: currentSnapshot.accountKey,
+        updatedAt: Date.now(),
+      });
+    }
   }
 
   return true;
@@ -320,8 +341,8 @@ async function detectAccountSwitch(reason) {
   }
 }
 
-async function ensureIdentityAccounts() {
-  if (identityAccounts.length) return identityAccounts;
+async function ensureIdentityAccounts({ force = false } = {}) {
+  if (identityAccounts.length && !force) return identityAccounts;
 
   let channelToken;
   try {
@@ -413,6 +434,7 @@ const uiHandlers = {
   handleSuggestionActivation: (item) =>
     handleSuggestionActivation(item, uiHandlers),
   bgFetch,
+  getAccountHint: () => getAccountHint(identityAccounts),
   renderSuggestions,
   collectTopMatches,
   fuseInstance,
@@ -423,7 +445,11 @@ const syncDependencies = {
   ensureIdentityAccounts,
   getAccountHint: () => getAccountHint(identityAccounts),
   fetchAllAnnouncementsPosts: () =>
-    fetchAllAnnouncementsPosts(normalizeAttachments, formatPostedAtForJapan),
+    fetchAllAnnouncementsPosts(
+      normalizeAttachments,
+      formatPostedAtForJapan,
+      getAccountHint(identityAccounts)
+    ),
   loadStreamPostsFromDb,
   persistStreamData,
   findNewPosts,
@@ -453,14 +479,15 @@ async function observe() {
   setupTopbarObserver();
   setupTopbarCheckInterval();
 
+  let switchedOnLoad = false;
   try {
-    await ensureIdentityAccounts();
+    await ensureIdentityAccounts({ force: true });
     const storedSwitchState = await readAccountSwitchState();
     const snapshot = getAccountSnapshot();
     if (storedSwitchState.fingerprint || storedSwitchState.accountKey) {
       lastAccountFingerprint = storedSwitchState.fingerprint || null;
       lastAccountKey = storedSwitchState.accountKey || null;
-      await handleAccountSwitchReload(storedSwitchState, snapshot);
+      switchedOnLoad = await handleAccountSwitchReload(storedSwitchState, snapshot);
     } else {
       lastAccountFingerprint = snapshot.fingerprint;
       lastAccountKey = snapshot.accountKey;
@@ -482,7 +509,13 @@ async function observe() {
     });
 
     const accountKey = AccountIdentityHelper.getCompositeKey();
-    const alreadyInitialized = await isAuthInitializedForKey(accountKey);
+    if (switchedOnLoad && accountSwitchSuccessMessageActive) {
+      await markAuthInitialized(accountKey);
+    }
+    const alreadyInitialized =
+      switchedOnLoad && accountSwitchSuccessMessageActive
+        ? true
+        : await isAuthInitializedForKey(accountKey);
 
     if (!alreadyInitialized) {
       gcxConsole.log("[GCX] 🔓 Requesting initial OAuth authentication...");
@@ -509,28 +542,30 @@ async function observe() {
 
   setupAccountSwitchDetection();
 
-  void syncStreamPosts(buildSyncOptions(), syncDependencies)
-    .then(() => {
-      applyAccountSwitchSuccessPlaceholder();
-    })
-    .catch((err) => {
-    if (
-      err &&
-      err.message &&
-      err.message.includes("Extension context invalidated")
-    ) {
-      gcxConsole.warn(
-        "[GCX] Extension context invalidated. Please reload the page."
-      );
-      setTopbarPlaceholder(
-        "拡張機能が更新されました。ページをリロードしてください。"
-      );
-      return;
-    }
+  if (!switchedOnLoad) {
+    void syncStreamPosts(buildSyncOptions(), syncDependencies)
+      .then(() => {
+        applyAccountSwitchSuccessPlaceholder();
+      })
+      .catch((err) => {
+      if (
+        err &&
+        err.message &&
+        err.message.includes("Extension context invalidated")
+      ) {
+        gcxConsole.warn(
+          "[GCX] Extension context invalidated. Please reload the page."
+        );
+        setTopbarPlaceholder(
+          "拡張機能が更新されました。ページをリロードしてください。"
+        );
+        return;
+      }
 
-    gcxConsole.warn("[GCX] Periodic fetch failed", err);
-    uiHandlers.flashRefreshError(err);
-  });
+      gcxConsole.warn("[GCX] Periodic fetch failed", err);
+      uiHandlers.flashRefreshError(err);
+    });
+  }
 
   if (POLL_INTERVAL_MS > 0) {
     setInterval(() => {
@@ -569,18 +604,19 @@ async function init() {
 
   ensureTopbar(uiHandlers);
   await loadLocalLibs();
-  if (API_MODE) {
-    try {
-      await syncStreamPosts(buildSyncOptions(), syncDependencies);
-      applyAccountSwitchSuccessPlaceholder();
-    } catch (error) {
-      gcxConsole.warn("[GCX] Initial fetch failed", error);
-      uiHandlers.flashRefreshError(error);
-    }
-  } else {
+  if (!API_MODE) {
     gcxConsole.info("[GCX] API mode=false (disabled)");
   }
-  await initFuse(await loadStreamPostsFromDb());
+  await reloadSearchIndexForCurrentAccount({
+    loadStreamPostsFromDb,
+    rerunLastQuery: () =>
+      rerunLastQuery(
+        lastQuery,
+        collectTopMatches,
+        (results) => renderSuggestions(results, uiHandlers),
+        uiHandlers
+      ),
+  });
   observe();
   gcxConsole.debug("[GCX] search input injection initialized");
 }

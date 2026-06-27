@@ -19,6 +19,7 @@ import {
   fuseInstance,
   collectTopMatches
 } from "./search.js";
+import { initFuse } from "./search.js";
 import {
   clearAllAuthTokens,
   forceOAuthAuthentication,
@@ -28,11 +29,39 @@ import { PLACEHOLDER_ACCOUNT_MISMATCH, PLACEHOLDER_DEFAULT } from "./constants.j
 
 export let syncInFlight = false;
 
+export async function waitForSyncIdle({
+  timeoutMs = 10000,
+  intervalMs = 100,
+} = {}) {
+  const startedAt = Date.now();
+  while (syncInFlight) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error("同期処理の完了待ちがタイムアウトしました");
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 export async function resetSearchResults(renderSuggestions) {
   if (fuseInstance) {
     fuseInstance.setCollection([]);
   }
   renderSuggestions([]);
+}
+
+export async function reloadSearchIndexForCurrentAccount({
+  loadStreamPostsFromDb: loadStreamPostsFromDbFn,
+  rerunLastQuery,
+  renderSuggestions,
+} = {}) {
+  const savedPosts = await loadStreamPostsFromDbFn();
+  await initFuse(savedPosts);
+  if (typeof rerunLastQuery === "function") {
+    rerunLastQuery(savedPosts);
+  } else if (typeof renderSuggestions === "function" && !savedPosts.length) {
+    renderSuggestions([]);
+  }
+  return savedPosts;
 }
 
 export async function syncStreamPosts(options = {}, dependencies) {
@@ -54,7 +83,7 @@ export async function syncStreamPosts(options = {}, dependencies) {
     rerunLastQuery,
   } = dependencies;
 
-  if (syncInFlight) return;
+  if (syncInFlight) return { skipped: true };
   syncInFlight = true;
   let savedPosts = [];
   try {
@@ -97,16 +126,15 @@ export async function syncStreamPosts(options = {}, dependencies) {
         throw authErr;
       }
 
-      savedPosts = await loadStreamPostsFromDbFn();
-      if (fuseInstance) {
-        fuseInstance.setCollection(savedPosts);
-        gcxConsole.log(
-          "[GCX] ✓ Fuse re-initialized with",
-          savedPosts.length,
-          "posts from new account"
-        );
-        rerunLastQuery();
-      }
+      savedPosts = await reloadSearchIndexForCurrentAccount({
+        loadStreamPostsFromDb: loadStreamPostsFromDbFn,
+        rerunLastQuery: () => rerunLastQuery(),
+      });
+      gcxConsole.log(
+        "[GCX] ✓ Search index reloaded with",
+        savedPosts.length,
+        "posts from new account"
+      );
     }
 
     if (!accountSwitched) {
@@ -114,6 +142,17 @@ export async function syncStreamPosts(options = {}, dependencies) {
     }
 
     const currentPostsRaw = await fetchAllAnnouncementsFn();
+    const latestFingerprint = AccountIdentityHelperClass.getFingerprint();
+    const latestAccountKey = AccountIdentityHelperClass.getCompositeKey();
+    if (
+      latestFingerprint !== currentFingerprint ||
+      latestAccountKey !== currentAccountKey
+    ) {
+      gcxConsole.warn(
+        "[GCX] Account changed during sync; discarding fetched data"
+      );
+      return { aborted: true };
+    }
 
     const existingPosts = toArray(savedPosts);
     const currentPosts = toArray(currentPostsRaw);
@@ -141,11 +180,11 @@ export async function syncStreamPosts(options = {}, dependencies) {
     }
 
     if (dataChanged) {
-      const updated = await loadStreamPostsFromDbFn();
-      if (fuseInstance) {
-        fuseInstance.setCollection(updated);
-        rerunLastQuery();
-      }
+      const updated = await reloadSearchIndexForCurrentAccount({
+        loadStreamPostsFromDb: loadStreamPostsFromDbFn,
+        rerunLastQuery: () => rerunLastQuery(),
+      });
+      savedPosts = updated;
     } else if (!existingPosts.length) {
       await resetSearchResults(renderSuggestions);
     }

@@ -3,6 +3,32 @@
 import { gcxConsole } from "../shared/utils.js";
 import { normalizeWhitespace } from "./utils.js";
 import { ensureChannelToken, ensureServiceWorkerReady } from "./auth.js";
+import { normalizeEmail } from "./account.js";
+
+function assertResponseAccountMatchesHint(accountHint, responseAccount) {
+  if (!accountHint || typeof accountHint !== "object") {
+    return;
+  }
+
+  const expectedGaiaId = normalizeWhitespace(accountHint.gaiaId || "");
+  const actualGaiaId = normalizeWhitespace(responseAccount?.id || "");
+  const expectedEmail = normalizeEmail(accountHint.email);
+  const actualEmail = normalizeEmail(responseAccount?.email);
+  if (expectedEmail && actualEmail && expectedEmail !== actualEmail) {
+    throw new Error("account mismatch: response account email differs from page account");
+  }
+  if (expectedEmail && actualEmail && expectedEmail === actualEmail) {
+    return;
+  }
+
+  if (expectedGaiaId && actualGaiaId && expectedGaiaId !== actualGaiaId) {
+    throw new Error("account mismatch: response account id differs from page account");
+  }
+
+  if ((expectedGaiaId || expectedEmail) && !responseAccount?.id && !responseAccount?.email) {
+    throw new Error("account mismatch: background could not resolve requested account");
+  }
+}
 
 export async function bgFetch(request, accountHint, { sessionKey } = {}, attempt = 0) {
   if (attempt === 0) {
@@ -97,6 +123,13 @@ export async function bgFetch(request, accountHint, { sessionKey } = {}, attempt
             return;
           }
 
+          try {
+            assertResponseAccountMatchesHint(accountHint, res.account);
+          } catch (error) {
+            reject(error);
+            return;
+          }
+
           resolve(res.data);
         }
       );
@@ -107,14 +140,17 @@ export async function bgFetch(request, accountHint, { sessionKey } = {}, attempt
   });
 }
 
-export async function listAllCourses() {
+export async function listAllCourses(accountHint) {
   const courses = [];
   let pageToken = undefined;
   do {
-    const data = await bgFetch({
-      path: "/courses",
-      params: { courseStates: "ACTIVE", pageSize: 100, pageToken },
-    });
+    const data = await bgFetch(
+      {
+        path: "/courses",
+        params: { courseStates: "ACTIVE", pageSize: 100, pageToken },
+      },
+      accountHint
+    );
     if (data?.courses?.length) courses.push(...data.courses);
     pageToken = data?.nextPageToken || undefined;
   } while (pageToken);
@@ -122,14 +158,17 @@ export async function listAllCourses() {
   return courses;
 }
 
-export async function listAnnouncementsForCourse(courseId) {
+export async function listAnnouncementsForCourse(courseId, accountHint) {
   const items = [];
   let pageToken = undefined;
   do {
-    const data = await bgFetch({
-      path: `/courses/${encodeURIComponent(courseId)}/announcements`,
-      params: { pageSize: 100, pageToken, orderBy: "updateTime desc" },
-    });
+    const data = await bgFetch(
+      {
+        path: `/courses/${encodeURIComponent(courseId)}/announcements`,
+        params: { pageSize: 100, pageToken, orderBy: "updateTime desc" },
+      },
+      accountHint
+    );
     if (data?.announcements?.length) items.push(...data.announcements);
     pageToken = data?.nextPageToken || undefined;
   } while (pageToken);
@@ -166,8 +205,8 @@ export function mapAnnouncementToPost(ann, course, index, formatPostedAtForJapan
   };
 }
 
-export async function fetchAllAnnouncementsPosts(normalizeAttachments, formatPostedAtForJapan) {
-  const courses = await listAllCourses();
+export async function fetchAllAnnouncementsPosts(normalizeAttachments, formatPostedAtForJapan, accountHint) {
+  const courses = await listAllCourses(accountHint);
   const posts = [];
   let counter = 0;
   const concurrency = 2;
@@ -182,7 +221,7 @@ export async function fetchAllAnnouncementsPosts(normalizeAttachments, formatPos
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
 
-        const anns = await listAnnouncementsForCourse(course.id);
+        const anns = await listAnnouncementsForCourse(course.id, accountHint);
         for (const ann of anns) {
           counter += 1;
           posts.push(mapAnnouncementToPost(ann, course, counter, formatPostedAtForJapan, normalizeAttachments));

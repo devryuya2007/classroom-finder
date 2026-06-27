@@ -4,7 +4,7 @@ import Fuse from "../src/libs/fuse.esm.js";
 
 const test = globalThis.test ?? nodeTest;
 
-// content.js と同じ Fuse 設定をここでも再現
+// content.entry.js と同じ Fuse 設定をここでも再現
 const fuseOptions = {
   includeMatches: true,
   includeScore: true,

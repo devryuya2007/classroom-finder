@@ -1,6 +1,6 @@
 // OAuth authentication management
 
-import { gcxConsole, createSimpleHash, normalizeEmail } from "../shared/utils.js";
+import { gcxConsole, normalizeEmail } from "../shared/utils.js";
 import { ensureSessionState, resetSessionState } from "./session.js";
 import {
   rememberToken,
@@ -8,11 +8,27 @@ import {
   invalidateTokensForAccountId,
   clearAllCachedTokens,
 } from "./token-manager.js";
-import { listIdentityAccounts } from "./account.js";
+import { listIdentityAccounts, listIdentityAccountsWithProfiles } from "./account.js";
 import { isPermanentOAuthConfigError } from "./utils.js";
 
+function normalizeAccountId(value) {
+  return typeof value === "string" && /^\d{5,}$/.test(value.trim()) ? value.trim() : null;
+}
+
+function buildHintAccountInfo(accountHint, sessionKey, oauthScopeHash) {
+  return {
+    id: normalizeAccountId(accountHint?.gaiaId),
+    email: normalizeEmail(accountHint?.email),
+    fingerprint: accountHint?.fingerprint || null,
+    sessionKey,
+    scopeKey: oauthScopeHash,
+    accountKey: accountHint?.accountKey || null,
+    source: "hint",
+  };
+}
+
 export async function resolveAccountFromHint(accountHint) {
-  const accounts = await listIdentityAccounts();
+  const accounts = await listIdentityAccountsWithProfiles();
   if (!accounts.length) {
     gcxConsole.warn("[GCX] ⚠️ No accounts available in Identity API");
     return { account: null, accounts };
@@ -21,33 +37,17 @@ export async function resolveAccountFromHint(accountHint) {
   gcxConsole.log("[GCX] 🔍 Resolving account from hint:", accountHint);
   gcxConsole.log(
     "[GCX] 📋 Available accounts:",
-    accounts.map((a) => ({ id: a.id, email: a.email }))
+    accounts.map((a) => ({ id: a.id, email: a.email })),
   );
 
   if (accountHint && typeof accountHint === "object") {
     const { gaiaId, email, index } = accountHint;
+    const normalizedGaiaId = normalizeAccountId(gaiaId);
 
-    // Search by GAIA ID
-    if (gaiaId) {
-      gcxConsole.log("[GCX] 🔎 Searching by gaiaId:", gaiaId);
-      const matchById = accounts.find((acc) => acc?.id === gaiaId);
-      if (matchById) {
-        gcxConsole.log("[GCX] ✓ Found account by gaiaId:", matchById.email);
-        return { account: matchById, accounts };
-      } else {
-        gcxConsole.warn("[GCX] ⚠️ No match found for gaiaId:", gaiaId);
-      }
-    } else {
-      gcxConsole.log("[GCX] ℹ️ No gaiaId provided in hint");
-    }
-
-    // Search by email
     const normalizedEmail = normalizeEmail(email);
     if (normalizedEmail) {
       gcxConsole.log("[GCX] 🔎 Searching by email:", normalizedEmail);
-      const matchByEmail = accounts.find(
-        (acc) => normalizeEmail(acc?.email) === normalizedEmail
-      );
+      const matchByEmail = accounts.find((acc) => normalizeEmail(acc?.email) === normalizedEmail);
       if (matchByEmail) {
         gcxConsole.log("[GCX] ✓ Found account by email:", matchByEmail.email);
         return { account: matchByEmail, accounts };
@@ -58,22 +58,31 @@ export async function resolveAccountFromHint(accountHint) {
       gcxConsole.log("[GCX] ℹ️ No email provided in hint");
     }
 
+    // Search by GAIA ID
+    if (normalizedGaiaId) {
+      gcxConsole.log("[GCX] 🔎 Searching by gaiaId:", normalizedGaiaId);
+      const matchById = accounts.find((acc) => acc?.id === normalizedGaiaId);
+      if (matchById) {
+        gcxConsole.log("[GCX] ✓ Found account by gaiaId:", matchById.email);
+        return { account: matchById, accounts };
+      } else {
+        gcxConsole.warn("[GCX] ⚠️ No match found for gaiaId:", normalizedGaiaId);
+      }
+    } else {
+      gcxConsole.log("[GCX] ℹ️ No gaiaId provided in hint");
+    }
+
     // Search by index
     if (typeof index === "number" && index >= 0 && index < accounts.length) {
       gcxConsole.log(
         "[GCX] 🔎 Using account by index:",
         index,
         "->",
-        accounts[index]?.email || accounts[index]?.id
+        accounts[index]?.email || accounts[index]?.id,
       );
       return { account: accounts[index], accounts };
     } else {
-      gcxConsole.warn(
-        "[GCX] ⚠️ Invalid index:",
-        index,
-        "accounts length:",
-        accounts.length
-      );
+      gcxConsole.warn("[GCX] ⚠️ Invalid index:", index, "accounts length:", accounts.length);
     }
   } else {
     gcxConsole.warn("[GCX] ⚠️ accountHint is invalid:", typeof accountHint);
@@ -89,11 +98,7 @@ export async function getAuthToken(
   oauthScopeHash,
   tokenCache,
   sessionStateStore,
-  {
-    interactive = false,
-    accountHint,
-    sessionKey,
-  } = {}
+  { interactive = false, accountHint, sessionKey } = {},
 ) {
   const normalizedSessionKey = sessionKey || "sw::global";
   const sessionState = ensureSessionState(sessionStateStore, normalizedSessionKey);
@@ -126,12 +131,9 @@ export async function getAuthToken(
       accountParam = { id: resolvedAccount.id };
       gcxConsole.log(
         "[GCX] 🎯 Using account for token:",
-        resolvedAccount.email || resolvedAccount.id
+        resolvedAccount.email || resolvedAccount.id,
       );
-      if (
-        sessionState.lastAccountId &&
-        sessionState.lastAccountId !== resolvedAccount.id
-      ) {
+      if (sessionState.lastAccountId && sessionState.lastAccountId !== resolvedAccount.id) {
         gcxConsole.log("[GCX] 🔄 Account ID changed, clearing old session tokens");
         resetSessionState(sessionStateStore, normalizedSessionKey);
         if (incomingFingerprint) {
@@ -145,9 +147,7 @@ export async function getAuthToken(
   }
 
   if (!interactive && !sessionState.hasActiveToken) {
-    gcxConsole.log(
-      "[GCX] No cached token for session. Switching to interactive flow."
-    );
+    gcxConsole.log("[GCX] No cached token for session. Switching to interactive flow.");
     interactive = true;
   }
 
@@ -168,10 +168,7 @@ export async function getAuthToken(
           if (isPermanentOAuthConfigError(runtimeMessage)) {
             sessionState.authBlockReason = `OAuth configuration error: ${runtimeMessage}`;
           }
-          gcxConsole.error(
-            "[GCX] getAuthToken error:",
-            runtimeMessage
-          );
+          gcxConsole.error("[GCX] getAuthToken error:", runtimeMessage);
           reject(new Error(runtimeMessage));
           return;
         }
@@ -187,28 +184,33 @@ export async function getAuthToken(
     }
   });
 
+  const hintAccountInfo = buildHintAccountInfo(accountHint, normalizedSessionKey, oauthScopeHash);
   const accountInfo = {
-    id: resolvedAccount?.id || null,
-    email: resolvedAccount?.email || null,
+    id: resolvedAccount?.id || hintAccountInfo.id,
+    email: normalizeEmail(resolvedAccount?.email) || hintAccountInfo.email,
     fingerprint: incomingFingerprint || null,
     sessionKey: normalizedSessionKey,
     scopeKey: oauthScopeHash,
     accountKey: accountHint?.accountKey || null,
+    source: resolvedAccount ? "identity" : hintAccountInfo.source,
   };
 
-  if (accountInfo.id) {
-    sessionState.lastAccountId = accountInfo.id;
+  if (resolvedAccount?.id) {
+    sessionState.lastAccountId = resolvedAccount.id;
   }
   sessionState.hasActiveToken = true;
-  rememberToken(tokenCache, normalizedSessionKey, accountInfo.id, token, oauthScopeHash);
+  rememberToken(
+    tokenCache,
+    normalizedSessionKey,
+    resolvedAccount?.id || null,
+    token,
+    oauthScopeHash,
+  );
 
   if (interactive) {
     gcxConsole.log("[GCX] ✓ Successfully obtained token via interactive auth");
   } else {
-    gcxConsole.log(
-      "[GCX] Successfully obtained token for account:",
-      accountInfo.id || "default"
-    );
+    gcxConsole.log("[GCX] Successfully obtained token for account:", accountInfo.id || "default");
   }
 
   return { token, account: accountInfo };
@@ -221,7 +223,7 @@ export function getAuthTokenSingleFlight(
   classroomBase,
   allowedHosts,
   oauthScopeHash,
-  options = {}
+  options = {},
 ) {
   const key = options.sessionKey || "sw::global";
   const existing = authInFlightStore.get(key);
@@ -233,7 +235,7 @@ export function getAuthTokenSingleFlight(
     oauthScopeHash,
     tokenCache,
     sessionStateStore,
-    options
+    options,
   ).finally(() => {
     if (authInFlightStore.get(key) === task) {
       authInFlightStore.delete(key);
@@ -243,10 +245,18 @@ export function getAuthTokenSingleFlight(
   return task;
 }
 
-export async function invalidateAccountToken(tokenCache, sessionStateStore, oauthScopeHash, account, { revoke = false } = {}) {
+export async function invalidateAccountToken(
+  tokenCache,
+  sessionStateStore,
+  oauthScopeHash,
+  account,
+  { revoke = false } = {},
+) {
   if (!account?.id) return;
   try {
-    await invalidateTokensForAccountId(tokenCache, sessionStateStore, oauthScopeHash, account.id, { revoke });
+    await invalidateTokensForAccountId(tokenCache, sessionStateStore, oauthScopeHash, account.id, {
+      revoke,
+    });
     await new Promise((resolve) => {
       chrome.identity.getAuthToken(
         { interactive: false, account: { id: account.id } },
@@ -259,12 +269,14 @@ export async function invalidateAccountToken(tokenCache, sessionStateStore, oaut
           if (token) {
             gcxConsole.log(
               "[GCX] 🗑️ Removing cached token for account:",
-              account.email || account.id
+              account.email || account.id,
             );
-            await removeCachedToken(tokenCache, sessionStateStore, oauthScopeHash, token, { revoke });
+            await removeCachedToken(tokenCache, sessionStateStore, oauthScopeHash, token, {
+              revoke,
+            });
           }
           resolve();
-        }
+        },
       );
     });
   } catch (err) {
@@ -272,9 +284,12 @@ export async function invalidateAccountToken(tokenCache, sessionStateStore, oaut
   }
 }
 
-export async function invalidateAllAccountTokens(tokenCache, sessionStateStore, { revoke = false } = {}) {
+export async function invalidateAllAccountTokens(
+  tokenCache,
+  sessionStateStore,
+  { revoke = false } = {},
+) {
   gcxConsole.log("[GCX] 🗑️ Invalidating all account tokens...");
-  const cachedTokens = [...tokenCache.values()].map((record) => record.token);
   tokenCache.clear();
   for (const key of sessionStateStore.keys()) {
     resetSessionState(sessionStateStore, key);

@@ -1,11 +1,14 @@
 // Account management for content script
 
 import { gcxConsole, EMAIL_REGEX } from "../shared/utils.js";
-import { hashString } from "./utils.js";
+import { hashString, normalizeWhitespace } from "./utils.js";
 
 export class AccountIdentityHelper {
   static getIndexKey() {
     try {
+      if (typeof window === "undefined" || !window.location?.href) {
+        return "u0";
+      }
       const url = new URL(window.location.href);
       const authuserParam = url.searchParams.get("authuser");
       if (authuserParam && /^\d+$/.test(authuserParam)) {
@@ -22,13 +25,13 @@ export class AccountIdentityHelper {
   }
 
   static getFingerprint() {
+    const email = getClassroomVisibleAccountEmail() || getClassroomAccountEmail();
+    if (email) {
+      return `m${hashString(email)}`;
+    }
     const gaiaId = getClassroomGaiaId();
     if (gaiaId) {
       return `g${hashString(gaiaId)}`;
-    }
-    const email = getClassroomAccountEmail();
-    if (email) {
-      return `m${hashString(email)}`;
     }
     return "anon";
   }
@@ -61,10 +64,71 @@ export function normalizeEmail(value) {
 }
 
 function getWizGlobalData() {
+  if (typeof window === "undefined") {
+    return null;
+  }
   const data = window.WIZ_global_data;
   if (data && typeof data === "object") {
     return data;
   }
+  return null;
+}
+
+const VISIBLE_ACCOUNT_EMAIL_SELECTORS = [
+  "[data-email]",
+  "[data-hovercard-id]",
+  "[data-identifier]",
+  'a[aria-label*="@"]',
+  'button[aria-label*="@"]',
+  '[role="button"][aria-label*="@"]',
+  'a[href*="SignOutOptions"][aria-label]',
+  'a[href*="AccountChooser"][aria-label]',
+  'a[href*="ServiceLogin"][aria-label]',
+  'img[alt*="@"]',
+];
+
+function readEmailFromElement(element) {
+  if (!element) return null;
+  const attributes = [
+    "data-email",
+    "data-hovercard-id",
+    "data-identifier",
+    "aria-label",
+    "alt",
+    "title",
+  ];
+  for (const attr of attributes) {
+    const email = normalizeEmail(element.getAttribute?.(attr));
+    if (email) return email;
+  }
+  return normalizeEmail(element.textContent || "");
+}
+
+export function getClassroomVisibleAccountEmail() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  for (const selector of VISIBLE_ACCOUNT_EMAIL_SELECTORS) {
+    let elements = [];
+    try {
+      if (typeof document.querySelectorAll === "function") {
+        elements = Array.from(document.querySelectorAll(selector));
+      } else {
+        const single = document.querySelector?.(selector);
+        elements = single ? [single] : [];
+      }
+    } catch (err) {
+      gcxConsole.debug("[GCX] visible account selector failed", selector, err);
+      continue;
+    }
+
+    for (const element of elements) {
+      const email = readEmailFromElement(element);
+      if (email) return email;
+    }
+  }
+
   return null;
 }
 
@@ -86,6 +150,9 @@ export function getClassroomGaiaId() {
       }
     }
   }
+  if (typeof document === "undefined") {
+    return null;
+  }
   const metaId = document.querySelector('meta[name="og-profile-id"]');
   const metaValue = metaId?.getAttribute("content");
   if (metaValue && /^\d{5,}$/.test(metaValue.trim())) {
@@ -96,6 +163,13 @@ export function getClassroomGaiaId() {
 }
 
 export function getClassroomAccountEmail() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const visibleEmail = getClassroomVisibleAccountEmail();
+  if (visibleEmail) return visibleEmail;
+
   const meta = document.querySelector('meta[name="og-profile-acct"]');
   const metaEmail = normalizeEmail(meta?.getAttribute("content"));
   if (metaEmail) return metaEmail;
@@ -109,26 +183,6 @@ export function getClassroomAccountEmail() {
       }
     }
   }
-
-  const selectors = [
-    "[data-email]",
-    'a[aria-label*="@"]',
-    'a[href*="SignOutOptions"][aria-label]',
-    'img[alt*="@"]',
-  ];
-  for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    if (!element) continue;
-    const attrEmail = normalizeEmail(element.getAttribute("data-email"));
-    if (attrEmail) return attrEmail;
-    const ariaEmail = normalizeEmail(element.getAttribute("aria-label"));
-    if (ariaEmail) return ariaEmail;
-    const altEmail = normalizeEmail(element.getAttribute("alt"));
-    if (altEmail) return altEmail;
-    const textEmail = normalizeEmail(element.textContent || "");
-    if (textEmail) return textEmail;
-  }
-
   return null;
 }
 
@@ -154,11 +208,15 @@ export function getAccountIndex() {
   return AccountIdentityHelper.getIndexNumber();
 }
 
+export function normalizeAccountIdentifier(value) {
+  return normalizeWhitespace(value || "");
+}
+
 export function isPostForCurrentAccount(post) {
   const currentAccountKey = AccountIdentityHelper.getCompositeKey();
   const currentFingerprint = AccountIdentityHelper.getFingerprint();
-  const postAccountKey = normalizeEmail(post?.accountKey || "");
-  const postFingerprint = normalizeEmail(post?.accountFingerprint || "");
+  const postAccountKey = normalizeAccountIdentifier(post?.accountKey);
+  const postFingerprint = normalizeAccountIdentifier(post?.accountFingerprint);
 
   if (postAccountKey && postAccountKey !== currentAccountKey) {
     return false;

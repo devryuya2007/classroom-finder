@@ -4,6 +4,7 @@ import { gcxConsole } from "../shared/utils.js";
 import Fuse from "../../libs/fuse.esm.js";
 import { normalizeWhitespace, toArray } from "./utils.js";
 import { SUGGESTION_LIMIT } from "./constants.js";
+import { isPostForCurrentAccount } from "./account.js";
 
 export const SEARCH_OPTIONS = {
   includeMatches: true,
@@ -35,6 +36,14 @@ export async function initFuse(posts) {
   }
 }
 
+export function getCurrentSearchDocs() {
+  if (!fuseInstance) {
+    return [];
+  }
+  const docs = toArray(fuseInstance.getIndex()?.docs);
+  return docs.filter((post) => isPostForCurrentAccount(post));
+}
+
 function getBodyMatchStart(result) {
   const matches = toArray(result?.matches);
   for (const match of matches) {
@@ -57,7 +66,9 @@ export function collectTopMatches(query) {
     return [];
   }
 
-  const results = fuseInstance.search(safeQuery);
+  const results = fuseInstance
+    .search(safeQuery)
+    .filter((result) => isPostForCurrentAccount(result?.item));
   const sorted = results.slice().sort((a, b) => {
     const aBodyIndex = getBodyMatchStart(a);
     const bBodyIndex = getBodyMatchStart(b);
