@@ -264,7 +264,7 @@ function createRefreshActionMenu(refreshBtn) {
   settingsButton.setAttribute("aria-label", "設定を開く");
   settingsButton.appendChild(ensureSettingsSVG());
 
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < 5; i += 1) {
     const emptySlot = document.createElement("span");
     emptySlot.classList.add("gcx-radial-empty-slot", `gcx-radial-slot-${i + 1}`);
     emptySlot.setAttribute("aria-hidden", "true");
@@ -300,8 +300,8 @@ function createRefreshActionMenu(refreshBtn) {
     });
     animateMotion(settingsButton, settingsMotion, {
       opacity: 1,
-      x: -12,
-      y: -46,
+      x: 17,
+      y: -29,
       scale: 1,
       duration: 0.32,
       ease: "back.out(1.7)",

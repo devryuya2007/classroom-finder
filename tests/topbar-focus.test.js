@@ -203,7 +203,7 @@ test("リロードボタンには設定用の円形メニュー入口が付く",
     assert.ok(refreshButton, "既存のリロードボタンが残ること");
     assert.ok(hoverBridge, "円形メニューへ移動するためのホバー範囲が生成されること");
     assert.ok(radialMenu, "円形メニューが生成されること");
-    assert.ok(radialSurface, "3アイコン分の背景が生成されること");
+    assert.ok(radialSurface, "円環メニューの背景が生成されること");
     assert.ok(emptySlot, "未使用アイコン枠が生成されること");
     assert.ok(settingsButton, "設定ボタンが生成されること");
     assert.ok(settingsPanel, "設定パネルが生成されること");

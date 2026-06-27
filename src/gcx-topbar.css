@@ -123,8 +123,8 @@
   position: absolute;
   left: 50%;
   bottom: 50%;
-  width: 92px;
-  height: 92px;
+  width: 124px;
+  height: 124px;
   border-radius: 50%;
   background: transparent;
   pointer-events: none;
@@ -193,10 +193,10 @@
 
 .gcx-radial-menu {
   position: absolute;
-  left: calc(50% - 42px);
-  top: calc(50% - 42px);
-  width: 84px;
-  height: 84px;
+  left: calc(50% - 52px);
+  top: calc(50% - 52px);
+  width: 104px;
+  height: 104px;
   pointer-events: auto;
   z-index: 2;
 }
@@ -209,18 +209,39 @@
   border: 1px solid rgba(26, 115, 232, 0.18);
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, transparent 0 30px, rgba(255, 255, 255, 0.92) 31px),
+    radial-gradient(circle at center, transparent 0 29px, rgba(255, 255, 255, 0.96) 30px),
     conic-gradient(
-      from -90deg,
-      rgba(232, 240, 254, 0.94),
-      rgba(255, 255, 255, 0.86),
-      rgba(232, 240, 254, 0.94)
+      from -30deg,
+      #174f6d 0deg 58deg,
+      rgba(226, 232, 240, 0.9) 58deg 60deg,
+      #1fa8ff 60deg 118deg,
+      rgba(226, 232, 240, 0.9) 118deg 120deg,
+      #ffffff 120deg 178deg,
+      rgba(226, 232, 240, 0.9) 178deg 180deg,
+      #ffffff 180deg 238deg,
+      rgba(226, 232, 240, 0.9) 238deg 240deg,
+      #ffffff 240deg 298deg,
+      rgba(226, 232, 240, 0.9) 298deg 300deg,
+      #ffffff 300deg 358deg,
+      rgba(226, 232, 240, 0.9) 358deg 360deg
     );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 10px 22px rgba(60, 64, 67, 0.18);
+    0 12px 28px rgba(60, 64, 67, 0.2);
   backdrop-filter: blur(16px);
   pointer-events: auto;
+}
+
+.gcx-radial-surface::before {
+  position: absolute;
+  inset: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 4px 12px rgba(60, 64, 67, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.6);
+  content: "";
+  pointer-events: none;
 }
 
 .gcx-radial-action,
@@ -238,26 +259,38 @@
 }
 
 .gcx-radial-action {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.94);
   color: #1a73e8;
-  transform: translate(-12px, -46px);
+  transform: translate(17px, -29px);
   box-shadow: 0 6px 14px rgba(60, 64, 67, 0.18);
   cursor: pointer;
   pointer-events: auto;
 }
 
 .gcx-radial-empty-slot {
-  background: rgba(232, 240, 254, 0.58);
-  border-color: rgba(26, 115, 232, 0.12);
-  box-shadow: inset 0 1px 3px rgba(60, 64, 67, 0.08);
+  background: rgba(255, 255, 255, 0.54);
+  border-color: rgba(26, 115, 232, 0.08);
+  box-shadow: inset 0 1px 3px rgba(60, 64, 67, 0.06);
 }
 
 .gcx-radial-slot-1 {
-  transform: translate(17px, 5px);
+  transform: translate(-12px, -46px);
 }
 
 .gcx-radial-slot-2 {
+  transform: translate(17px, 5px);
+}
+
+.gcx-radial-slot-3 {
+  transform: translate(-12px, 22px);
+}
+
+.gcx-radial-slot-4 {
   transform: translate(-41px, 5px);
+}
+
+.gcx-radial-slot-5 {
+  transform: translate(-41px, -29px);
 }
 
 .gcx-radial-action:hover,
