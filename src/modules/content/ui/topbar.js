@@ -300,8 +300,8 @@ function createRefreshActionMenu(refreshBtn) {
     });
     animateMotion(settingsButton, settingsMotion, {
       opacity: 1,
-      x: 10,
-      y: -34,
+      x: -12,
+      y: -46,
       scale: 1,
       duration: 0.32,
       ease: "back.out(1.7)",
